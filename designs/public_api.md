@@ -205,13 +205,17 @@ SnakeYAML is pulled transitively when using `YamlConfigParser`.
 ## Publication checklist (maintainers)
 
 1. Register `me.tibetty` namespace on [Central Portal](https://central.sonatype.com/) and create a user token.
-2. Upload your GPG public key to the namespace (required for signed artifacts).
+2. Publish your GPG **public** key to a keyserver Sonatype queries (`keys.openpgp.org`, `keyserver.ubuntu.com`, or `pgp.mit.edu`) — there is no separate “upload public key” UI on Central Portal.
 3. Add GitHub Actions secrets on `tibetty/sig-brute`:
    - `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` — Portal user token
    - `SIGNING_KEY` — armored GPG private key
    - `SIGNING_PASSWORD` — key passphrase
 4. Tag and push: `git tag v1.0.0 && git push origin v1.0.0` — triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml) (upload to OSSRH Staging API, then promote to namespace `me.tibetty` with automatic release).
-5. **Upload the release GPG public key** to the `me.tibetty` namespace on [Central Portal](https://central.sonatype.com/publishing/namespaces). The private key in `SIGNING_KEY` must match; without the public key on the namespace, validation fails with *Could not find a public key by the key fingerprint*.
+5. **Publish the matching GPG public key to a keyserver** (must match the private key in `SIGNING_KEY`):
+   ```bash
+   gpg --keyserver keys.openpgp.org --send-keys YOUR_KEY_ID
+   ```
+   Validation fails with *Could not find a public key by the key fingerprint* until the key is visible on a supported keyserver (propagation can take a few minutes).
 6. Confirm the deployment at [central.sonatype.com/publishing](https://central.sonatype.com/publishing).
 7. Attach the CLI fat JAR (`./gradlew shadowJar` → `build/libs/sig-brute-*-all.jar`) to the GitHub Release if desired.
 

@@ -12,8 +12,8 @@
 # repo automatically. The POST below promotes the deployment to the Central Portal
 # under namespace me.tibetty (see central.sonatype.org OSSRH Staging API docs).
 #
-# Prerequisite: register and verify namespace me.tibetty on Central Portal and upload
-# the release GPG public key (see designs/public_api.md).
+# Prerequisite: verify namespace me.tibetty on Central Portal and publish the release
+# GPG public key to a supported keyserver (see designs/public_api.md).
 
 name: Release
 
