@@ -210,9 +210,10 @@ SnakeYAML is pulled transitively when using `YamlConfigParser`.
    - `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` — Portal user token
    - `SIGNING_KEY` — armored GPG private key
    - `SIGNING_PASSWORD` — key passphrase
-4. Tag and push: `git tag v1.0.0 && git push origin v1.0.0` — triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml) (`publishToSonatype` + `closeAndReleaseSonatypeStagingRepository`).
-5. Confirm the deployment at [central.sonatype.com/publishing](https://central.sonatype.com/publishing) (use **AUTOMATIC** publishing on the namespace for hands-off release, or release manually in the Portal UI).
-6. Attach the CLI fat JAR (`./gradlew shadowJar` → `build/libs/sig-brute-*-all.jar`) to the GitHub Release if desired.
+4. Tag and push: `git tag v1.0.0 && git push origin v1.0.0` — triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml) (upload to OSSRH Staging API, then promote to namespace `me.tibetty` with automatic release).
+5. **Upload the release GPG public key** to the `me.tibetty` namespace on [Central Portal](https://central.sonatype.com/publishing/namespaces). The private key in `SIGNING_KEY` must match; without the public key on the namespace, validation fails with *Could not find a public key by the key fingerprint*.
+6. Confirm the deployment at [central.sonatype.com/publishing](https://central.sonatype.com/publishing).
+7. Attach the CLI fat JAR (`./gradlew shadowJar` → `build/libs/sig-brute-*-all.jar`) to the GitHub Release if desired.
 
 ---
 

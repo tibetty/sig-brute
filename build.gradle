@@ -114,3 +114,10 @@ if (signingKey && signingPassword) {
         sign publishing.publications.maven
     }
 }
+
+// CLI fat JAR only — library consumers get the thin jar + sources + javadoc.
+components.java {
+    withVariantsFromConfiguration(configurations.shadowRuntimeElements) {
+        skip()
+    }
+}
