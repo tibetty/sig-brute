@@ -1,0 +1,34 @@
+# Example: Superfluid GDA pool initialization
+# Demonstrates () for multiple tuples and [] for primitive array
+# Expected match: initialize(address×7,(uint32,uint32,uint32),(string×5),address,address[]) → 0x73a4859c
+
+selector: "0x73a4859c"
+method_names: [initialize, initPool]
+
+args:
+  - [address, bytes20]
+  - [address, bytes20]
+  - [address, bytes20]
+  - [address, bytes20]
+  - [address, bytes20]
+  - [address, bytes20]
+  - [address, bytes20]
+
+  - ():
+      - [uint*]
+      - [uint*]
+      - [uint*]
+
+  - ():
+      - [address, string]
+      - [address, string]
+      - [address, string]
+      - [string]
+      - [string]
+
+  - [address, bytes20]
+  - "[]":
+      - address
+
+parallelism: 8
+find_first: true

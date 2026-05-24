@@ -1,0 +1,15 @@
+sig-brute
+Copyright 2026 tibetty and contributors
+
+This product includes software developed by third parties:
+
+  SnakeYAML (org.yaml:snakeyaml)
+  Copyright (c) 2008, SnakeYAML Project
+  Licensed under the Apache License, Version 2.0
+
+The type-frequency data in src/main/resources/type_frequency.txt was derived from
+the public sigbank corpus (https://github.com/tintinweb/sigbank) for ranking
+common ABI types during search. See that repository for corpus licensing.
+
+Portions of this project were developed with assistance from AI coding tools.
+See AUTHORS for attribution.

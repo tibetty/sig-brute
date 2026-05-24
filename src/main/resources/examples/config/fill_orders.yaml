@@ -1,0 +1,16 @@
+# Example: function with a tuple-array argument
+# Demonstrates ()[] for tuple-array arg and [] for primitive array arg
+# Expected match: fillOrders((address,uint256)[],bytes32) → 0x79530090
+
+selector: "0x79530090"
+method_names: [processOrders, executeOrders, fillOrders]
+
+args:
+  - ()[]:
+      - [address, bytes20]
+      - [uint*, int*]
+
+  - [bytes*]
+
+parallelism: 16
+find_first: true

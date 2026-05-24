@@ -1,0 +1,172 @@
+$schema: https://json-schema.org/draft-07/schema#
+title: sig-brute Search Config
+description: >
+  Configuration file for sig-brute — brute-force recovery of Solidity function
+  signatures from their 4-byte ABI selectors.
+
+type: object
+required: [selector, method_names, args]
+additionalProperties: false
+
+properties:
+  selector:
+    description: >
+      Target 4-byte ABI selector as a hex string.
+      Always quote values that start with "0x" to prevent YAML from
+      parsing them as integers (e.g. selector: "0xa9059cbb").
+    type: string
+    pattern: ^(0x)?[0-9a-fA-F]{8}$
+    examples:
+      - "0xa9059cbb"
+      - a9059cbb
+
+  method_names:
+    description: One or more candidate function names to search
+    oneOf:
+      - type: string
+        description: Single method name
+      - type: array
+        description: Multiple method names
+        items:
+          type: string
+        minItems: 1
+    examples:
+      - transfer
+      - [transfer, safeTransfer]
+
+  args:
+    description: >
+      Candidate type specs for each argument position, left to right.
+      Every element is an arg_spec.
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/$defs/arg_spec"
+
+  parallelism:
+    description: "Worker thread count (default: number of available CPU cores)"
+    type: integer
+    minimum: 1
+
+  find_first:
+    description: >
+      When true, stop after the first matching signature is found.
+      When false (default), collect all matches.
+      The CLI flag --find-first overrides this value.
+    type: boolean
+    default: false
+
+  shard_index:
+    description: >
+      0-based index of this shard when splitting the search space across
+      multiple machines. Must be in [0, total_shards). Default 0.
+    type: integer
+    minimum: 0
+    default: 0
+
+  total_shards:
+    description: >
+      Total number of shards for a distributed search. Each shard scans a
+      contiguous, non-overlapping slice of the Cartesian product. Default 1.
+    type: integer
+    minimum: 1
+    default: 1
+
+$defs:
+  arg_spec:
+    description: >
+      Type candidates for one argument position.
+      Three forms are available: inline list, primitive array, or tuple.
+    oneOf:
+      - $ref: "#/$defs/inline_list"
+      - $ref: "#/$defs/primitive_array_spec"
+      - $ref: "#/$defs/tuple_spec"
+
+  inline_list:
+    description: >
+      Bare list of ABI type patterns for this position — the simplest form.
+      Each item may be an exact type, a wildcard, or include an array suffix.
+
+      Wildcards:
+        uint*        → uint8, uint16, …, uint256
+        int*         → int8,  int16,  …, int256
+        bytes*       → bytes1, bytes2, …, bytes32
+        fixed*       → all fixedMxN  (M: 8…256 step 8, N: 1…80)
+        ufixed*      → all ufixedMxN
+        fixed*xN     → fixed8xN, fixed16xN, … (fixed N, wildcard M)
+        fixedMx*     → fixedMx1, fixedMx2, … (fixed M, wildcard N)
+
+      Normalised aliases:
+        uint  → uint256   |  int   → int256
+        byte  → bytes1    |  fixed → fixed128x18  |  ufixed → ufixed128x18
+
+      Array suffix: append [] or [N] to any pattern (e.g. address[], uint*[]).
+
+      Flow-sequence caveat: YAML flow sequences (e.g. [a, b]) interpret [] as a
+      nested empty sequence. Use the "[]" key form or block form instead:
+        - "[]":
+            - address
+            - bytes*
+        - - address[]
+          - bytes*[]
+    type: array
+    minItems: 1
+    items:
+      type: string
+    examples:
+      - [address, bytes20]
+      - [uint*, int*]
+
+  primitive_array_spec:
+    description: >
+      Dynamic or fixed-size array of a primitive type.
+      The key is the array suffix ("[]" or "[N]"); the value lists base type patterns.
+      The suffix is appended to each base pattern before wildcard expansion.
+
+      "[]" key:   address → address[]   bytes* → bytes1[]…bytes32[]
+      "[N]" key:  address → address[3]  bytes32 → bytes32[3]
+
+      Quote the key to prevent YAML from interpreting [] as an empty sequence.
+    type: object
+    minProperties: 1
+    maxProperties: 1
+    patternProperties:
+      "^(\\[\\]|\\[\\d+\\])$":
+        type: array
+        minItems: 1
+        items:
+          type: string
+    additionalProperties: false
+    examples:
+      - "[]":
+          - address
+          - bytes*
+      - "[3]":
+          - address
+          - bytes32
+
+  tuple_spec:
+    description: >
+      Solidity tuple (struct) argument.
+      The key is "()" for a plain tuple, "()[]" for a dynamic tuple array, or
+      "()[N]" for a fixed-size tuple array. Quote keys that contain [].
+      The value is a list of field specs (inline list or nested tuple).
+    type: object
+    minProperties: 1
+    maxProperties: 1
+    patternProperties:
+      "^\\(\\)(\\[\\]|\\[\\d+\\])?$":
+        type: array
+        minItems: 1
+        items:
+          $ref: "#/$defs/arg_spec"
+    additionalProperties: false
+    examples:
+      - ():
+          - [address, bytes20]
+          - [uint*, int*]
+      - "()[]":
+          - [address]
+          - [uint256]
+      - "()[3]":
+          - [address]

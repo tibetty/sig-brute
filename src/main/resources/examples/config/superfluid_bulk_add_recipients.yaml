@@ -1,0 +1,23 @@
+# Example: Superfluid-style recipient batching
+# Demonstrates () for tuple, ()[] for tuple-array, and [] for primitive array
+# Expected match: bulkAddRecipients(bytes32[],address[],(string,string,string,string,string)[]) → 0xd727784a
+
+selector: "0xd727784a"
+method_names: [bulkAddRecipients]
+
+args:
+  - "[]":
+      - bytes*
+
+  - "[]":
+      - [address, uint*]
+
+  - "()[]":
+      - [uint*, string]
+      - [uint*, string]
+      - [uint*, string]
+      - [string]
+      - [string]
+
+parallelism: 4
+find_first: true

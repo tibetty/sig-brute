@@ -1,0 +1,21 @@
+# sig-brute contributors
+
+## Maintainers
+
+- **tibetty** — project owner and primary author
+
+## Co-authorship
+
+Parts of this codebase, documentation, and test suite were written with assistance
+from AI coding agents (Claude and Cursor). Human review, design decisions, and
+final acceptance remain with the maintainers listed above.
+
+## Third-party data
+
+- **Type frequency rankings** — derived from the [sigbank](https://github.com/tintinweb/sigbank)
+  public signature corpus (see `src/main/resources/type_frequency.txt`).
+
+## How to be listed here
+
+Send a pull request that adds your name under Maintainers after your first merged
+contribution, or ask the maintainers to add you.

@@ -1,0 +1,12 @@
+# Example: ERC-20 transfer
+# Expected match: transfer(address,uint256) → 0xa9059cbb
+
+selector: "0xa9059cbb"
+method_names: [transfer, safeTransfer]
+
+args:
+  - [address, bytes20]
+  - [uint*, int*]
+
+parallelism: 8
+find_first: false
