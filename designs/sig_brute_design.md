@@ -581,6 +581,9 @@ Exit codes: `0` = success (search completed or decode OK), `1` = error, `2` = em
 
 ## Stability contract
 
+See **[public_api.md](public_api.md)** for the full Maven Central / JPMS export list, stability
+tiers, and library usage examples.
+
 - The YAML schema is the public API. Keys `selector`, `method_names`, `args`, `parallelism`,
   `find_first` are stable. `shard_index` and `total_shards` are stable from Phase 1.
 - The `SearchConfig` 5-arg convenience constructor (`selector, methodNames, args, parallelism,

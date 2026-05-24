@@ -122,7 +122,7 @@ if (condition)
 
 1. Fork and create a branch from `main`.
 2. Keep commits focused; write clear commit messages.
-3. Ensure CI passes (GitHub Actions runs `./gradlew test` on Java 17).
+3. Ensure CI passes (GitHub Actions runs `./gradlew test` on Java 17). Releases are published to Maven Central when a `v*` tag is pushed (see `designs/public_api.md`).
 4. Describe what changed and how you tested it in the PR body.
 
 ## Reporting issues

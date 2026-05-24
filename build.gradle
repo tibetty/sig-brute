@@ -1,16 +1,20 @@
 plugins {
-    id 'java'
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+    id 'io.github.gradle-nexus.publish-plugin' version '2.0.0'
     id 'com.gradleup.shadow' version '8.3.6'
-
 }
 
 group = 'me.tibetty'
-version = '1.0.0'
+version = findProperty('version') ?: '1.0.0'
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
+    withJavadocJar()
+    withSourcesJar()
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -22,7 +26,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.yaml:snakeyaml:2.2'
+    api 'org.yaml:snakeyaml:2.2'
 
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter-api'
@@ -42,6 +46,72 @@ jar {
 }
 
 shadowJar {
-    archiveClassifier = ''
+    archiveClassifier = 'all'
+    mergeServiceFiles()
 }
 
+tasks.named('javadoc') {
+    modularity.inferModulePath = false
+    excludes = ['module-info.java', 'me/tibetty/sigbrute/decode/infer/**',
+        'me/tibetty/sigbrute/Main.java', 'me/tibetty/sigbrute/decode/DecodeMain.java']
+    options {
+        tags = ['apiNote:a:API Note:']
+        addStringOption('Xdoclint:none', '-quiet')
+    }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+            pom {
+                name = 'sig-brute'
+                description = 'Ethereum ABI selector brute-force and calldata decode library'
+                url = 'https://github.com/tibetty/sig-brute'
+                licenses {
+                    license {
+                        name = 'Apache License 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'tibetty'
+                        name = 'tibetty'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/tibetty/sig-brute.git'
+                    developerConnection = 'scm:git:ssh://github.com/tibetty/sig-brute.git'
+                    url = 'https://github.com/tibetty/sig-brute'
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'local'
+            url = layout.buildDirectory.dir('repo')
+        }
+    }
+}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri('https://ossrh-staging-api.central.sonatype.com/service/local/'))
+            snapshotRepositoryUrl.set(uri('https://central.sonatype.com/repository/maven-snapshots/'))
+            username.set(findProperty('mavenCentralUsername') ?: '')
+            password.set(findProperty('mavenCentralPassword') ?: '')
+        }
+    }
+}
+
+def signingKey = findProperty('signingInMemoryKey')
+def signingPassword = findProperty('signingInMemoryKeyPassword')
+if (signingKey && signingPassword) {
+    signing {
+        useInMemoryPgpKeys(signingKey.toString(), signingPassword.toString())
+        sign publishing.publications.maven
+    }
+}
