@@ -64,7 +64,13 @@ public final class ConfigEmitter {
             }
         } else if (a instanceof DecodedArg.Tuple t) {
             var keyForm = quoteTupleKey(t.arraySuffix());
-            sb.append(listEntryPrefix).append("- ").append(keyForm).append(":\n");
+            sb.append(listEntryPrefix).append("- ").append(keyForm).append(':');
+            // For fallback-decoded tuples the structure is ambiguous: a dynamic array (T[])
+            // encodes identically at the byte level. Hint the user so they can choose.
+            if (t.arraySuffix().isEmpty() && isFallbackComment(t.comment())) {
+                sb.append("  # or []: for a dynamic T[]");
+            }
+            sb.append('\n');
 
             var childIndent = listEntryPrefix + "    ";
             for (var j = 0; j < t.fields().size(); j++) {
@@ -80,6 +86,11 @@ public final class ConfigEmitter {
 
     private static String joinCandidates(List<String> cands) {
         return String.join(", ", cands);
+    }
+
+    /** {@code true} when the comment originates from the heuristic fallback decode path. */
+    private static boolean isFallbackComment(String comment) {
+        return comment != null && comment.startsWith("fallback");
     }
 
     /** Returns {@code ()} (unquoted) or {@code "()[]"} / {@code "()[N]"} (quoted). */

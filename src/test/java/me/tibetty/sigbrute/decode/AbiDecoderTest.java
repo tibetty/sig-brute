@@ -206,6 +206,72 @@ class AbiDecoderTest {
             "field 1 is bool false (all-zero) — 'bool' must be a candidate");
     }
 
+    /**
+     * Regression: a static tuple field whose {@code uint256} value (0xC0 = 192) coincidentally
+     * satisfies all ABI-offset plausibility checks caused {@link AbiDecoder#scanHeadSize} to
+     * return 192 instead of the correct 320 (= 10 × 32). The result was a 6-field outer tuple
+     * with one deeply-nested "fallback dynamic tuple" instead of the correct 10-field flat tuple
+     * with 4 dynamic tail fields (address[], address[], bytes, string).
+     *
+     * <p>Selector: {@code 0x0dc4bdae} — {@code exactInputV2Swap(tuple,uint256)}.
+     */
+    @Test
+    void exactInputV2SwapFreeFormDecodeHasTenTupleFields() {
+        var input = """
+            MethodID: 0x0dc4bdae
+            [0]:  0000000000000000000000000000000000000000000000000000000000000040
+            [1]:  000000000000000000000000000000000000000000000000000000006a129229
+            [2]:  000000000000000000000000f03bac88f177c943b7ede6fb95b8a626876a2f88
+            [3]:  000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
+            [4]:  0100000000000000000000007a250d5630b4cf539739df2c5dacb4c659f2488d
+            [5]:  000000000000000000000000000000000000000000000000000000000000fa00
+            [6]:  0000000000000000000000000000000000000000000000000000000005b61113
+            [7]:  00000000000000000000000000000000000000000000000000000000000000c0
+            [8]:  0000000000000000000000000000000000000000000000000000000000000140
+            [9]:  00000000000000000000000000000000000000000000000000000000000001a0
+            [10]: 00000000000000000000000000000000000000000000000000000000000001e0
+            [11]: 0000000000000000000000000000000000000000000000000000000000000260
+            [12]: 0000000000000000000000000000000000000000000000000000000000000002
+            [13]: 000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7
+            [14]: 00000000000000000000000075db45ad40dece3ff7e6a4c1ac941d43508b5b57
+            [15]: 0000000000000000000000000000000000000000000000000000000000000001
+            [16]: 000000000000000000000000fb3593a220d6647bdaa6115b13d21169e2c29adc
+            [17]: 0000000000000000000000000000000000000000000000000000000000000041
+            [18]: 9b4308e1f295724b3090c37ce6c77116f12a47312ccb053b0121d0342d43be8d
+            [19]: 3dcea1d806b6d5372002f28a0ae7bb6736c263fc7ae61c3c8137051c145d1f89
+            [20]: 1b00000000000000000000000000000000000000000000000000000000000000
+            [21]: 0000000000000000000000000000000000000000000000000000000000000007
+            [22]: 616e64726f696400000000000000000000000000000000000000000000000000
+            """;
+        var in = CalldataInput.parse(input);
+        // Heuristic decode — no skeleton hint, pure byte-level inference.
+        var args = AbiDecoder.decodeArgs(in.body(), null);
+
+        // Top level: tuple at dynamic offset 64 + uint256 deadline.
+        assertEquals(2, args.size());
+
+        // arg[0] must be a Tuple decoded from the dynamic offset.
+        assertInstanceOf(DecodedArg.Tuple.class, args.get(0),
+            "arg[0] should be a dynamic tuple, got: " + args.get(0));
+        var tuple = (DecodedArg.Tuple) args.get(0);
+
+        // The inner tuple body has 10 ABI head fields:
+        //   address, address, uint256, uint256, uint256, uint256 (static)
+        //   + address[], address[], bytes, string (dynamic offsets).
+        // Before the fix, scanHeadSize returned 192 (slot 5, value 0xC0 = 6×32) and
+        // decoded only 6 fields with one deeply-nested fallback tuple.
+        assertEquals(10, tuple.fields().size(),
+            "inner tuple must have 10 fields (not 6 with a nested fallback) — fields: "
+                + tuple.fields());
+
+        // Field 6 is the 2-element address[] decoded as a PrimArray ("[]"), not a
+        // nested Tuple — the wrong 6-field path wrapped the entire tail in one Tuple.
+        DecodedArg field6 = tuple.fields().get(6);
+        assertInstanceOf(DecodedArg.PrimArray.class, field6,
+            "field[6] must be PrimArray (address[]), got: " + field6);
+        assertEquals("[]", ((DecodedArg.PrimArray) field6).arraySuffix());
+    }
+
     @Test
     void emittedYamlParsesAsSigBruteConfig() throws IOException {
         Path fixture = Path.of("src/main/resources/examples/calldata/dag_swap_by_order_id.calldata");

@@ -598,7 +598,69 @@ public final class AbiDecoder {
                 best = offset;
             }
         }
-        return best;
+        return advanceHeadSizeIfTailLooksLikeOffset(body, best);
+    }
+
+    /**
+     * Advances {@code headSize} when the first word of the tail is itself a larger plausible
+     * head boundary, and the slots between the current and new head boundary confirm it by
+     * containing at least one valid ABI offset relative to the new size.
+     *
+     * <p>This fixes the case where a static tuple field's {@code uint256} value coincidentally
+     * satisfies all ABI-offset plausibility checks (aligned multiple of 32, within body length,
+     * beyond slot position) and causes {@link #scanHeadSize} to return a head boundary that is
+     * too small. In the correct interpretation those slots are static data and the actual dynamic
+     * offsets form a cluster that begins further into the head.
+     *
+     * <p>Example: a 10-field tuple where fields 0–5 are static and fields 6–9 carry ABI offsets.
+     * Field 5 has value {@code 0xC0 = 192 = 6×32} which looks like an offset, so
+     * {@code scanHeadSize} returns 192. The first "tail" word is then 320 (the real first offset
+     * at slot 6). Since 320 is also a plausible head size AND slot 7 (value 416) is a valid ABI
+     * offset relative to headSize 320, we advance to 320 — the correct boundary.
+     *
+     * <p>Guard: the candidate {@code next} must be strictly less than {@code body.length} so that
+     * at least one tail word exists after the extended head. The validation step (checking slots
+     * strictly after {@code headSize / 32}) prevents false chaining when a bytes/string length
+     * word happens to equal a larger multiple of 32 but the surrounding payload contains no
+     * plausible offsets.
+     */
+    private static int advanceHeadSizeIfTailLooksLikeOffset(byte[] body, int headSize) {
+        if (headSize < 0) {
+            return headSize;
+        }
+        while (headSize + 32 <= body.length) {
+            var v = uintOf(slice(body, headSize, 32));
+            if (v.signum() <= 0 || v.bitLength() > 31) {
+                break;
+            }
+            var next = v.intValueExact();
+            if (next % 32 != 0 || next <= headSize || next >= body.length) {
+                break;
+            }
+            // Validate: at least one slot in (headSize/32, next/32) must carry a plausible ABI
+            // offset relative to 'next'. The slot at headSize/32 (the word that triggered the
+            // chain) is excluded to prevent bytes/string length words from self-validating.
+            if (!hasPlausibleOffsetInRange(body, headSize / 32 + 1, next / 32, next)) {
+                break;
+            }
+            headSize = next;
+        }
+        return headSize;
+    }
+
+    /**
+     * Returns {@code true} when any slot in {@code [fromSlot, toSlot)} (exclusive end) contains
+     * a value that {@link #isPlausibleOffset} accepts for the given {@code headSize}.
+     */
+    private static boolean hasPlausibleOffsetInRange(byte[] body, int fromSlot, int toSlot,
+        int headSize) {
+        var numWords = body.length / 32;
+        for (var i = fromSlot; i < toSlot && i < numWords; i++) {
+            if (isPlausibleOffset(uintOf(slice(body, i * 32, 32)), body.length, headSize)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

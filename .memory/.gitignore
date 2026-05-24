@@ -1,0 +1,5 @@
+# Raw Claude Code transcripts — local-only. Large, regenerated every turn, and
+# may contain pasted tool output (tokens, stack traces with credentials).
+# Sidecars (.sessions.jsonl) and team artifacts under team/ are small and
+# safe to commit.
+*/*.conversations.jsonl
