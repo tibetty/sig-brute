@@ -4,7 +4,7 @@
 - **Audience:** Engineering contributors, Ethereum tooling practitioners
 - **Status:** Living design document (public OSS)
 - **Last reviewed:** 2026-05-23
-- **Revision:** 2026-05-23 — decoder accuracy fixes (bytes[] detection, expanded array intersection, uint160+ for address slots), TypeExpander array suffix support, sequential `--find-first`; elapsed-time in search summary; TypeRanker tier corrections; `bool` inference added (zero and value-1 slots); skeleton-typed primitive-array decoding fix (`address[]`, `uint256[]`)
+- **Revision:** 2026-05-24 — workflow diagrams updated for decode/search pipeline, `infer/` slot-inferrer chain, `emit/` YAML output, TypeRanker ordering, and `--find-first` sequential mode
 
 ## Context and Goals
 
@@ -99,22 +99,26 @@ flowchart TD
     D -->|no| F["decodeTupleBody<br>heuristic"]
     E --> G["DecodedArg tree<br>Leaf / PrimArray / Tuple"]
     F --> G
-    G --> H("TypeInferrer<br>per-slot inference")
+    G --> H("SlotMeta + SlotInferrer chain<br>Zero / ValueOne / LeftAligned / …")
     H --> G
-    G --> I("ConfigEmitter.emit<br>YAML")
+    G --> I("PrototypeRenderer + ConfigEmitter<br>YAML")
     I --> J[sig-brute config.yaml]
 
     J -->|sig-brute config.yaml| K(YamlConfigParser)
     K --> L("SearchConfig<br>record")
-    L --> M(SearchEngine.search)
-    M --> N{sharding?}
-    N -->|shard_index / total_shards| O(CartesianStream.shard)
-    N -->|single node| P(new CartesianStream)
-    O --> Q("CartesianSpliterator<br>ForkJoinPool")
-    P --> Q
-    Q --> R[combo → sig string]
-    R --> S(Keccak256Util selectorMatches)
-    S -->|match| T[stdout — signature]
+    L --> M(ArgSpec.expand)
+    M --> N("TypeExpander + TypeRanker<br>per-arg dimensions")
+    N --> O{sharding?}
+    O -->|shard_index / total_shards| P(CartesianStream.shard)
+    O -->|single node| Q(new CartesianStream)
+    P --> R{find_first?}
+    Q --> R
+    R -->|yes| S("sequential stream<br>TypeRanker order preserved")
+    R -->|no| T("CartesianSpliterator<br>ForkJoinPool")
+    S --> U[combo → sig string]
+    T --> U
+    U --> V(Keccak256Util selectorMatches)
+    V -->|match| W[stdout — signature]
 ```
 
 ### Package map
@@ -122,7 +126,9 @@ flowchart TD
 | Package                        | Responsibility                                                                                                  |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `me.tibetty.sigbrute`          | `Main` — CLI dispatch                                                                                           |
-| `me.tibetty.sigbrute.decode`   | `CalldataInput`, `AbiDecoder`, `TypeInferrer`, `ConfigEmitter`, `PrototypeRenderer`, `DecodeMain`, `DecodedArg` |
+| `me.tibetty.sigbrute.decode`        | `CalldataInput`, `AbiDecoder`, `DecodeMain`, `DecodedArg`                                                       |
+| `me.tibetty.sigbrute.decode.infer`  | `TypeInferrer`, `SlotMeta`, `SlotInferrer` implementations (`Zero`, `ValueOne`, `LeftAligned`, …)               |
+| `me.tibetty.sigbrute.decode.emit`   | `ConfigEmitter`, `PrototypeRenderer`                                                                            |
 | `me.tibetty.sigbrute.model`    | `ArgSpec` (sealed), `LeafArgSpec`, `TupleArgSpec`, `SearchConfig`                                               |
 | `me.tibetty.sigbrute.parser`   | `YamlConfigParser`                                                                                              |
 | `me.tibetty.sigbrute.search`   | `SearchEngine`, `SearchException`                                                                               |

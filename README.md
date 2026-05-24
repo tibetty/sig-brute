@@ -67,19 +67,39 @@ sig-brute automates that last step.
 
 Ethereum encodes function calls by taking the first 4 bytes of `keccak256` of the
 canonical signature string — e.g. `transfer(address,uint256)` → `0xa9059cbb`.
-sig-brute expands wildcard type patterns into every concrete ABI type, forms the
-Cartesian product across all argument positions, hashes each combination in
-parallel, and filters for selector matches.
+sig-brute automates recovery in two CLI phases: `decode` infers structure and type
+candidates from calldata; the default search subcommand expands wildcards, ranks
+candidates by corpus type frequency (`TypeRanker`), and hashes every combination —
+in parallel for all matches, or sequentially in `--find-first` mode so the most
+likely signature is tried first.
 
 ```mermaid
-flowchart LR
-    YAML[config.yaml] --> Parser
-    Parser --> Config[SearchConfig]
-    Config --> Expander[TypeExpander<br>wildcard expansion]
-    Expander --> Cartesian[Cartesian product<br>lazy stream]
-    Cartesian --> Pool[ForkJoinPool<br>parallel workers]
-    Pool -- keccak256 each sig --> Filter[selector match?]
-    Filter -- yes --> Results
+flowchart TD
+    subgraph preflight [1. Preflight — manual]
+        A[Selector] --> B{4byte / Sourcify<br/>API lookup}
+        B -->|match| Z([Signature found])
+        B -->|no match| C[Calldata from Etherscan]
+    end
+
+    subgraph decodePhase [2. sig-brute decode]
+        C --> D[AbiDecoder + slot inferrers]
+        D --> E[Draft YAML config]
+    end
+
+    subgraph refine [3. Refine config]
+        E --> F[Method names & type wildcards]
+    end
+
+    subgraph searchPhase [4. sig-brute search]
+        F --> G[TypeExpander + TypeRanker]
+        G --> H[Cartesian product]
+        H --> I{Mode}
+        I -->|--find-first| J[Sequential scan]
+        I -->|all matches| K[Parallel ForkJoinPool]
+        J --> L[Keccak-256 hash & filter]
+        K --> L
+        L --> M([Matching signatures])
+    end
 ```
 
 ## Requirements
