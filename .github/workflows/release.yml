@@ -7,8 +7,11 @@
 #   SIGNING_PASSWORD        — passphrase for SIGNING_KEY
 #
 # Create a release: git tag v1.0.0 && git push origin v1.0.0
-# Artifacts appear at https://central.sonatype.com/publishing after the workflow runs;
-# with AUTOMATIC publishing enabled on the namespace, release is hands-off.
+# After upload, open https://central.sonatype.com/publishing to release (or enable
+# AUTOMATIC publishing on the me.tibetty namespace).
+#
+# Prerequisite: register and verify namespace me.tibetty on Central Portal and upload
+# the release GPG public key (see designs/public_api.md).
 
 name: Release
 
@@ -54,5 +57,5 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew test publishToSonatype closeAndReleaseSonatypeStagingRepository \
+          ./gradlew test publishMavenPublicationToMavenCentralRepository \
             --no-daemon -Pversion="${{ steps.version.outputs.value }}"
