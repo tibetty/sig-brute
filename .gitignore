@@ -15,6 +15,7 @@ build/
 
 # Local tooling (not part of the published project)
 .claude/
+.memory/
 .trunk/
 
 # Java

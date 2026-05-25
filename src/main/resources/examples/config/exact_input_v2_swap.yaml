@@ -1,0 +1,28 @@
+# Example: Uniswap V2 aggregator swap — two address[] inside a tuple
+# Field 7 is a 1-element address[]. Without the bytes(1)/array heuristic fix it
+# was decoded as bytes and the search could never find the correct signature.
+# Real signature (4byte.directory):
+#   exactInputV2Swap((address,address,uint256,uint256,uint256,uint256,address[],address[],bytes,string),uint256)
+# Selector: 0x0dc4bdae
+
+selector: "0x0dc4bdae"
+method_names: [exactInputV2Swap]
+
+args:
+  - ():
+      - [address]
+      - [address]
+      - [bytes32, uint256]
+      - [uint256]
+      - [uint256]
+      - [uint256]
+      - "[]":
+          - [address]
+      - "[]":
+          - [address]
+      - [bytes]
+      - [bytes, string]
+
+  - [uint256]
+
+find_first: true

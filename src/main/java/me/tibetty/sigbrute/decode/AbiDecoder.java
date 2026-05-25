@@ -718,6 +718,17 @@ public final class AbiDecoder {
         }
 
         var length = lengthWord.intValueExact();
+
+        // When length == 1 the 64-byte layout is byte-for-byte identical to T[](1).
+        // Genuine bytes(1) ABI-encodes its single content byte left-aligned: the first
+        // byte of the content word (body[32]) equals the content byte.  If body[32] is
+        // zero the content cannot be a non-zero left-aligned bytes(1) value, so the slot
+        // is more likely a right-aligned address/uint array element.  Defer to
+        // tryDecodeArrayFromLengthPrefix, which will recover the correct T[](1) structure.
+        if (length == 1 && body[32] == 0) {
+            return null;
+        }
+
         if (length > 0) {
             return new DecodedArg.Leaf(List.of(BYTES, STRING),
                 length + " bytes — could also be " + BYTES + Math.min(length, 32) + " if static");

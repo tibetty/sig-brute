@@ -36,6 +36,13 @@ class SearchEngineComplexSignatureTest {
         + "(uint32,uint32,uint32),(string,string,string,string,string),address,address[])";
     private static final byte[] SUPERFLUID_INITIALIZE_SELECTOR = hexSelector("73a4859c");
 
+    // 4byte.directory — Uniswap V2 aggregator swap with two address[] inside the tuple.
+    // Field 7 is a 1-element address[]; without the bytes(1)/array heuristic fix it was
+    // decoded as bytes and the search could never find this signature.
+    private static final String EXACT_INPUT_V2_SWAP =
+        "exactInputV2Swap((address,address,uint256,uint256,uint256,uint256,address[],address[],bytes,string),uint256)";
+    private static final byte[] EXACT_INPUT_V2_SWAP_SELECTOR = hexSelector("0dc4bdae");
+
     // Synthetic — tuple-of-tuple nested inside a top-level tuple
     private static final String NESTED_TUPLE_ROUTING = "setRouting((address,(uint32,uint8)),bytes32)";
 
@@ -46,6 +53,8 @@ class SearchEngineComplexSignatureTest {
         assertTrue(Keccak256Util.selectorMatches(ADD_FLOW_RECIPIENT, ADD_FLOW_RECIPIENT_SELECTOR));
         assertTrue(
             Keccak256Util.selectorMatches(SUPERFLUID_INITIALIZE, SUPERFLUID_INITIALIZE_SELECTOR));
+        assertTrue(
+            Keccak256Util.selectorMatches(EXACT_INPUT_V2_SWAP, EXACT_INPUT_V2_SWAP_SELECTOR));
     }
 
     @Test
@@ -159,6 +168,98 @@ class SearchEngineComplexSignatureTest {
             // Exact patterns are not asserted here — they belong to the example file and change
             // independently. Structure (arg count, tuple positions, field counts) is what matters.
         }
+    }
+
+    @Test
+    void findsExactInputV2SwapFromYamlExample() throws Exception {
+        try (InputStream in = getClass()
+            .getResourceAsStream("/examples/config/exact_input_v2_swap.yaml")) {
+            var config = new YamlConfigParser().parse(in);
+
+            // Selector must match
+            for (int i = 0; i < 4; i++) {
+                assertEquals(EXACT_INPUT_V2_SWAP_SELECTOR[i], config.selector()[i]);
+            }
+
+            // Outer args: tuple + uint256
+            assertEquals(2, config.args().size());
+            assertInstanceOf(TupleArgSpec.class, config.args().get(0));
+
+            TupleArgSpec tuple = (TupleArgSpec) config.args().get(0);
+            assertEquals("", tuple.arraySuffix());
+            assertEquals(10, tuple.fields().size());
+
+            // Fields 6 and 7 must be address[] candidates.
+            // "[]": entries parse as LeafArgSpec with patterns "T[]" (not TupleArgSpec).
+            assertInstanceOf(LeafArgSpec.class, tuple.fields().get(6));
+            assertInstanceOf(LeafArgSpec.class, tuple.fields().get(7));
+            assertTrue(((LeafArgSpec) tuple.fields().get(6)).patterns().contains("address[]"),
+                "Field 6 must include 'address[]' candidate");
+            assertTrue(((LeafArgSpec) tuple.fields().get(7)).patterns().contains("address[]"),
+                "Field 7 must include 'address[]' candidate");
+
+            var results = new SearchEngine(config,
+                new PrintStream(OutputStream.nullOutputStream())).search();
+            assertEquals(1, results.size());
+            assertEquals(EXACT_INPUT_V2_SWAP, results.get(0));
+        }
+    }
+
+    /**
+     * Verifies that the calldata fixture decodes with the correct structure: the inner tuple must
+     * have 10 fields, and both field 6 and field 7 must be recognised as address[] (PrimArray),
+     * not as bytes/string (Leaf).  Field 7 is a 1-element address[] — without the
+     * bytes(1)/array heuristic fix it was decoded as a Leaf([bytes, string]) and the
+     * emitted YAML would never contain an address[] entry for that position.
+     *
+     * <p>The full decode → search round-trip is exercised via the example YAML (which pins
+     * the candidates to a small, fast search space) rather than running the wide heuristic YAML
+     * through the search engine directly.
+     */
+    @Test
+    void decodesExactInputV2SwapCalldataFixtureStructure() throws Exception {
+        var text = new String(getClass()
+            .getResourceAsStream("/examples/calldata/exact_input_v2_swap.calldata")
+            .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+        var in = me.tibetty.sigbrute.decode.CalldataInput.parse(text);
+        var decodedArgs = me.tibetty.sigbrute.decode.AbiDecoder.decodeArgs(
+            in.body(), in.topLevelTypes());
+
+        // Outer structure: tuple (arg[0]) + uint256 (arg[1])
+        assertEquals(2, decodedArgs.size());
+        assertInstanceOf(me.tibetty.sigbrute.decode.DecodedArg.Tuple.class, decodedArgs.get(0));
+
+        var outerTuple = (me.tibetty.sigbrute.decode.DecodedArg.Tuple) decodedArgs.get(0);
+        assertEquals(10, outerTuple.fields().size(), "Inner tuple must have 10 fields");
+
+        // Field 6: address[] (2-element) — decoded as PrimArray
+        assertInstanceOf(me.tibetty.sigbrute.decode.DecodedArg.PrimArray.class,
+            outerTuple.fields().get(6), "Field 6 must be PrimArray (address[])");
+
+        // Field 7: address[] (1-element) — the bytes(1)/array ambiguity case.
+        // Before the fix this was a Leaf([bytes, string]); after the fix it must be a PrimArray.
+        assertInstanceOf(me.tibetty.sigbrute.decode.DecodedArg.PrimArray.class,
+            outerTuple.fields().get(7),
+            "Field 7 must be PrimArray (address[]) — not Leaf([bytes, string])");
+
+        var field7 = (me.tibetty.sigbrute.decode.DecodedArg.PrimArray) outerTuple.fields().get(7);
+        assertTrue(field7.baseCandidates().contains("address"),
+            "Field 7 candidates must include 'address'");
+
+        // The emitted YAML must reflect address[] for field 7.
+        // "[]": entries parse back as LeafArgSpec with "T[]" patterns.
+        var yaml = me.tibetty.sigbrute.decode.emit.ConfigEmitter.emit(
+            in.selector(), in.methodName(), decodedArgs);
+        var config = new YamlConfigParser().parse(
+            new java.io.ByteArrayInputStream(
+                yaml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        var innerTuple = (TupleArgSpec) config.args().get(0);
+        assertInstanceOf(LeafArgSpec.class, innerTuple.fields().get(7),
+            "YAML field 7 must parse as a LeafArgSpec with address[] candidates");
+        assertTrue(((LeafArgSpec) innerTuple.fields().get(7)).patterns().contains("address[]"),
+            "YAML field 7 must include 'address[]' candidate");
     }
 
     @Test

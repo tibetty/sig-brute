@@ -87,7 +87,29 @@ class RoundTripTest {
             heuristicCase("transfer(address,uint256) — heuristic", "transfer",
                 "transfer(address,uint256)",
                 concat(address("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"),
-                    uint(1_000_000_000_000_000_000L))));
+                    uint(1_000_000_000_000_000_000L))),
+
+            // ── Heuristic bytes/array ambiguity: length-1 cases ───────────────
+            //
+            // bytes(1) and T[](1) have the same 64-byte layout (length word = 1,
+            // then 32 bytes of content).  Without the fix, tryDecodeLengthPrefixedBytes
+            // wins for both and the array signature is never found.
+            //
+            // Fix guard: bytes(1) with non-zero content (0xDE, left-aligned) must
+            // still be decoded as bytes, not address[].
+            heuristicCase("rawData(bytes) — 1 byte, heuristic (bytes-vs-array guard)", "rawData",
+                "rawData(bytes)",
+                singleDynBody(bytes(new byte[]{(byte) 0xDE}))),
+
+            // Fix case: 1-element address[] must not be decoded as bytes.
+            heuristicCase("tokens(address[]) — 1-element, heuristic (bytes/array ambiguity)",
+                "tokens", "tokens(address[])",
+                singleDynBody(staticArray(address("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")))),
+
+            // Fix case: 1-element uint256[] must not be decoded as bytes.
+            heuristicCase("amounts(uint256[]) — 1-element, heuristic (bytes/array ambiguity)",
+                "amounts", "amounts(uint256[])",
+                singleDynBody(staticArray(uint(1_000_000_000_000_000_000L)))));
     }
 
     // ── Case builders ─────────────────────────────────────────────────────────
@@ -102,6 +124,18 @@ class RoundTripTest {
         var dump = etherscanDump(sig, sig, args);
         var in = CalldataInput.parse(dump);
         return Arguments.of(label, sig, in);
+    }
+
+    /**
+     * Builds a calldata body for a single dynamic top-level argument. The body is: a 32-byte offset
+     * word (value = 32) followed by the argument's ABI payload.
+     */
+    private static byte[] singleDynBody(Val.Dynamic val) {
+        var payload = val.payload();
+        var body = new byte[32 + payload.length];
+        body[31] = 32; // offset = 32
+        System.arraycopy(payload, 0, body, 32, payload.length);
+        return body;
     }
 
     /**
