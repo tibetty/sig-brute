@@ -61,12 +61,12 @@ public final class DecodeMain {
 
             var hint = resolveTopLevelHint(input, parsed);
             var result = AbiDecoder.decodeResult(input.body(), hint, parsed.strategy(),
-                parsed.wideCandidates(), resolveInlineTopLevelHint(input, parsed));
+                parsed.wideCandidates(), List.of());
             for (var warning : result.warnings()) {
                 err.println("decode warning: " + warning);
             }
 
-            var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), result);
+            var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), result, hint);
             if (parsed.validate()) {
                 DecodeConfigValidator.validate(input.selector(), yaml);
             }
@@ -94,14 +94,6 @@ public final class DecodeMain {
         }
         if (parsed.shallowSkeleton()) {
             return input.withShallowSkeleton().topLevelTypes();
-        }
-        var types = input.topLevelTypes();
-        return types != null ? types : List.of();
-    }
-
-    static List<String> resolveInlineTopLevelHint(CalldataInput input, ParsedArgs parsed) {
-        if (parsed.ignoreSkeleton() || !parsed.shallowSkeleton()) {
-            return List.of();
         }
         var types = input.topLevelTypes();
         return types != null ? types : List.of();

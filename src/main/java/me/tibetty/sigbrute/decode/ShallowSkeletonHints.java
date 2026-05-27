@@ -81,4 +81,20 @@ public final class ShallowSkeletonHints {
     private static boolean isInlineTupleBase(String type) {
         return SkeletonTypes.isInlineTuple(type);
     }
+
+    /** True when a shallow hint names an opaque {@code tuple} (optional array suffix only). */
+    public static boolean isOpaqueTopLevelTupleHint(String shallowType) {
+        if (shallowType == null) {
+            return false;
+        }
+        var parts = AbiTypeSyntax.splitOutermostArraySuffix(shallowType);
+        var base = parts != null ? parts.base() : shallowType;
+        return OPAQUE_TUPLE.equals(base);
+    }
+
+    /** Array suffix from a shallow type, e.g. {@code tuple[]} → {@code []}. */
+    public static String arraySuffixFromShallowType(String shallowType) {
+        var parts = AbiTypeSyntax.splitOutermostArraySuffix(shallowType);
+        return parts != null ? parts.suffix() : "";
+    }
 }

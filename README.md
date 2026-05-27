@@ -141,7 +141,7 @@ java -jar build/libs/sig-brute-1.2.0-all.jar decode --strategy heuristic_search 
 | `--strategy greedy\|heuristic_search` | decode     | Body decode policy (default: `greedy`)                                                               |
 | `--validate`                          | decode     | Re-parse emitted YAML and verify selector before stdout                                              |
 | `--ignore-skeleton`                   | decode     | Ignore `Function:` header; decode calldata bytes only (corpus / stress runs)                         |
-| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level hints; full `Function:` types still drive layout and per-arg decode |
+| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level hints only; YAML uses wildcards inside tuples (no `Function:` inline types) |
 | `--wide`                              | decode     | With `heuristic_search`: union greedy + compact type candidates per slot (larger YAML)               |
 
 In find-first mode the search runs sequentially in type-frequency order so the most
@@ -295,7 +295,7 @@ is in [`designs/public_api.md`](designs/public_api.md).
 | Situation | Prefer | Why |
 | --------- | ------ | --- |
 | Etherscan dump with a trusted `Function:` line | `greedy` (default) | Uses skeleton hints; fast draft YAML |
-| 4byte full sig in `Function:` but RE-friendly top-level names | `heuristic_search` + `--shallow-skeleton` | Opaque top-level hints; per-parameter types from `Function:` line |
+| 4byte full sig in `Function:` but RE-friendly top-level names | `heuristic_search` + `--shallow-skeleton` | Opaque top-level hints; inner tuple fields from heuristics, not inline `Function:` types |
 | Raw hex or no reliable `Function:` line | `heuristic_search` + `--ignore-skeleton` | Explores head/tail and dynamic tails on bytes only |
 | Complex tuples, layout ambiguous | `heuristic_search` | Scores branches; warnings and `# Alternate structures` on near-ties |
 | Compact YAML for search (`uint160+`, `int*`) | `heuristic_search` | Collapses types to wildcards/floors |

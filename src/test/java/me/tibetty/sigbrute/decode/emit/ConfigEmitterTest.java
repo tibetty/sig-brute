@@ -106,4 +106,23 @@ class ConfigEmitterTest {
             args);
         assertTrue(yaml.contains("selector: \"0xf2960001\""));
     }
+
+    @Test
+    void emitShallowTopLevel_usesOpaqueTuplePrototypeAndWildcardFields() {
+        var args = List.<DecodedArg>of(
+            new DecodedArg.Tuple("",
+                List.of(new DecodedArg.Leaf(List.of("string"), "inline field 0"),
+                    new DecodedArg.Leaf(List.of("string"), "inline field 1")),
+                "dynamic inline tuple"),
+            new DecodedArg.Leaf(List.of("uint256"), null),
+            new DecodedArg.Tuple("",
+                List.of(new DecodedArg.Leaf(List.of("string"), null)), null));
+        var shallow = List.of("tuple", "uint256", "tuple");
+        var yaml = ConfigEmitter.emit(new byte[]{0, 0, 0, 1}, "remove_liquidity", args, shallow);
+        assertTrue(yaml.contains("# Shallow skeleton:"));
+        assertTrue(yaml.contains("#   remove_liquidity(tuple,uint256,tuple)"));
+        assertTrue(yaml.contains("- [address, bytes*, string, uint*, int*]"));
+        assertFalse(yaml.contains("inline field 0"));
+        assertTrue(yaml.contains("- [uint256]"));
+    }
 }

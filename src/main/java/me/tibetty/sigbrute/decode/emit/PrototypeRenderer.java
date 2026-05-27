@@ -31,6 +31,21 @@ public final class PrototypeRenderer {
         return sb.toString();
     }
 
+    /** Prototype from shallow skeleton type strings ({@code tuple}, {@code tuple[]}, scalars). */
+    public static String renderFromShallowTypes(String methodName, List<String> shallowTopLevelTypes) {
+        var sb = new StringBuilder();
+        sb.append(methodName == null || methodName.isBlank() ? "<fn>" : methodName);
+        sb.append('(');
+        for (var i = 0; i < shallowTopLevelTypes.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(shallowTopLevelTypes.get(i));
+        }
+        sb.append(')');
+        return sb.toString();
+    }
+
     private static String renderArg(DecodedArg a) {
         if (a instanceof DecodedArg.Leaf leaf) {
             return pickConcrete(firstOrDefault(leaf.candidates()));

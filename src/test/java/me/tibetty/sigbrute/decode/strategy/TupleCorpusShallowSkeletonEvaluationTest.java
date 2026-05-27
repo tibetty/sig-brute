@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
 /**
- * Structural evaluation with shallow skeleton: method name + top-level types from {@code Function:},
- * inline tuples abstracted to {@code tuple} / {@code tuple[]}. Writes
+ * Structural evaluation with shallow skeleton: opaque top-level {@code tuple} / {@code tuple[]}
+ * hints only (no inline types from {@code Function:} for decode). Writes
  * {@code structure-check-shallow.json} when the local corpus is present.
  */
 class TupleCorpusShallowSkeletonEvaluationTest {
@@ -46,7 +46,7 @@ class TupleCorpusShallowSkeletonEvaluationTest {
                 var known = SignatureStructure.parseSignature(knownSig);
 
                 var greedy = AbiDecoder.decodeResult(input.body(), input.topLevelTypes(),
-                    DecodeStrategy.GREEDY, false, input.inlineTopLevelTypes()).args();
+                    DecodeStrategy.GREEDY, false, List.of()).args();
                 if (known.structureEquals(SignatureStructure.fromDecodedArgs(greedy))) {
                     greedyMatch++;
                 } else {
@@ -54,7 +54,7 @@ class TupleCorpusShallowSkeletonEvaluationTest {
                 }
 
                 var search = AbiDecoder.decodeResult(input.body(), input.topLevelTypes(),
-                    DecodeStrategy.HEURISTIC_SEARCH, false, input.inlineTopLevelTypes()).args();
+                    DecodeStrategy.HEURISTIC_SEARCH, false, List.of()).args();
                 if (known.structureEquals(SignatureStructure.fromDecodedArgs(search))) {
                     searchMatch++;
                 } else {

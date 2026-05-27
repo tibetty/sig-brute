@@ -39,12 +39,12 @@ public record CalldataInput(byte[] selector, byte[] body, String methodName,
      * {@code tuple[]} instead of inline {@code (T,...)} forms from a full 4byte signature.
      *
      * <p>
-     * {@link #inlineTopLevelTypes} retains the original inline forms from the {@code Function:}
-     * line for head-slot planning and per-parameter body decode (see {@link ShallowSkeletonHints}).
+     * {@link #inlineTopLevelTypes} is left null; shallow decode uses only opaque top-level hints
+     * ({@code tuple} / {@code tuple[]}) and heuristics — not the inline forms from {@code Function:}.
      */
     public CalldataInput withShallowSkeleton() {
         return new CalldataInput(selector, body, methodName,
-            ShallowSkeletonHints.abstractTopLevelTypes(topLevelTypes), topLevelTypes);
+            ShallowSkeletonHints.abstractTopLevelTypes(topLevelTypes), null);
     }
 
     private static final int REGEX_CASE_MULTILINE = Pattern.CASE_INSENSITIVE | Pattern.MULTILINE;

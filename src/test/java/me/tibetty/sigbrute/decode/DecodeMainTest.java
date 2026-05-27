@@ -52,8 +52,7 @@ class DecodeMainTest {
         var input = CalldataInput.parse(Files.readString(path, StandardCharsets.UTF_8));
         var shallow = input.withShallowSkeleton();
         assertEquals(java.util.List.of("bytes", "tuple"), shallow.topLevelTypes());
-        assertEquals(java.util.List.of("bytes", "(uint256,address)"),
-            shallow.inlineTopLevelTypes());
+        assertNull(shallow.inlineTopLevelTypes());
         assertEquals(0,
             DecodeMain.decode(new String[]{"--shallow-skeleton", path.toString()}, ps(captureOut()),
                 DEV_NULL));
