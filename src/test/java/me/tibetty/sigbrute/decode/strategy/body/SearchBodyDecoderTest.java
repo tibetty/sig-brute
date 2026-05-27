@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import me.tibetty.sigbrute.decode.DecodedArg;
 import me.tibetty.sigbrute.decode.infer.GeneralizedTypePatterns;
-import me.tibetty.sigbrute.decode.strategy.DecodeContext;
+import me.tibetty.sigbrute.decode.strategy.DecodeStrategy;
 import me.tibetty.sigbrute.decode.SignatureStructure;
 import org.junit.jupiter.api.Test;
 
@@ -18,10 +18,12 @@ class SearchBodyDecoderTest {
             + "000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
             + "00000000000000000000000000000000000000000000000000000000000003e8";
         var body = me.tibetty.sigbrute.decode.CalldataInput.parse(hex).body();
-        var first = SearchBodyDecoder.decode(DecodeContext.heuristicSearch(), body);
+        var first = SearchBodyDecoder.decode(
+            DecodeStrategy.newContext(DecodeStrategy.HEURISTIC_SEARCH), body);
         var expected = SignatureStructure.fromDecodedArgs(first);
         for (var i = 0; i < 20; i++) {
-            var again = SearchBodyDecoder.decode(DecodeContext.heuristicSearch(), body);
+            var again = SearchBodyDecoder.decode(
+                DecodeStrategy.newContext(DecodeStrategy.HEURISTIC_SEARCH), body);
             assertEquals(first.size(), again.size());
             assertTrue(expected.structureEquals(SignatureStructure.fromDecodedArgs(again)));
         }
@@ -29,7 +31,7 @@ class SearchBodyDecoderTest {
 
     @Test
     void nearTieSameStructureMergesLeafCandidates() {
-        var ctx = DecodeContext.heuristicSearch();
+        var ctx = DecodeStrategy.newContext(DecodeStrategy.HEURISTIC_SEARCH);
         var word = new byte[32];
         word[31] = 0x01;
         var a = new DecodedArg.Leaf(List.of("uint8+"), "a");

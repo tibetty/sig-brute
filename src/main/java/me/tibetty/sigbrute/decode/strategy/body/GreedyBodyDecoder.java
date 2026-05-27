@@ -8,6 +8,7 @@ import java.util.Set;
 import me.tibetty.sigbrute.decode.DecodedArg;
 import me.tibetty.sigbrute.decode.abi.AbiCodec;
 import me.tibetty.sigbrute.decode.abi.AbiTypeSyntax;
+import me.tibetty.sigbrute.decode.abi.ArraySuffixComposer;
 import me.tibetty.sigbrute.decode.abi.UintPatternCompactor;
 import me.tibetty.sigbrute.decode.infer.TypeInferrer;
 import me.tibetty.sigbrute.decode.layout.DynamicHeadSlots;
@@ -114,6 +115,10 @@ public final class GreedyBodyDecoder {
             return null;
         }
 
+        if (length == 0 && body.length == 32) {
+            return null;
+        }
+
         if (length > 0) {
             return new DecodedArg.Leaf(List.of(BYTES, STRING),
                 length + " bytes — could also be " + BYTES + Math.min(length, 32) + " if static");
@@ -159,14 +164,105 @@ public final class GreedyBodyDecoder {
                 count + " element(s), bytes[] (each prefixed by length)");
         }
 
-        var perElement = new ArrayList<List<DecodedArg>>(count);
+        DecodedArg shape = null;
         for (var i = 0; i < count; i++) {
             var from = 32 + elemOffsets[i];
             var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : body.length;
-            perElement.add(ctx.decodeBody(AbiCodec.slice(body, from, to - from)));
+            var elem = decodeOffsetIndexedElement(ctx, AbiCodec.slice(body, from, to - from));
+            if (shape == null) {
+                shape = elem;
+            }
         }
-        return new DecodedArg.Tuple("[]", perElement.get(0),
-            count + " elements (dynamic); using element[0] — others may differ");
+        if (shape == null) {
+            return null;
+        }
+        return ArraySuffixComposer.attach(shape, "[]");
+    }
+
+    static DecodedArg decodeOffsetIndexedElement(DecodeContext ctx, byte[] elemSlice) {
+        var rowArray = tryDecodeOffsetPrefixedRowArray(ctx, elemSlice);
+        if (rowArray != null) {
+            return rowArray;
+        }
+
+        var arrayElement = tryDecodeArrayElementSlice(ctx, elemSlice);
+        if (arrayElement != null) {
+            return arrayElement;
+        }
+
+        return decodeTupleElementBody(ctx, elemSlice);
+    }
+
+    static DecodedArg tryDecodeArrayElementSlice(DecodeContext ctx, byte[] elemSlice) {
+        if (!AbiCodec.looksLikeDynamicArrayCount(elemSlice)) {
+            return null;
+        }
+
+        var lengthWord = AbiCodec.uintOf(AbiCodec.slice(elemSlice, 0, 32));
+        var count = lengthWord.intValueExact();
+        var remaining = elemSlice.length - 32;
+
+        var nested = tryDecodeNestedArraySlice(ctx, elemSlice, lengthWord, count, remaining);
+        if (nested != null) {
+            return nested;
+        }
+
+        return tryDecodeStaticConcatenatedElementSlice(ctx, elemSlice, count, remaining);
+    }
+
+    static DecodedArg tryDecodeNestedArraySlice(DecodeContext ctx, byte[] elemSlice,
+        BigInteger lengthWord, int count, int remaining) {
+        if (count != 0
+            && OffsetTable.parseMonotonic(elemSlice, count, remaining).length != count) {
+            return null;
+        }
+
+        return tryDecodeArrayFromLengthPrefix(ctx, elemSlice, lengthWord);
+    }
+
+    static DecodedArg tryDecodeStaticConcatenatedElementSlice(DecodeContext ctx, byte[] elemSlice,
+        int count, int remaining) {
+        if (count <= 0 || remaining <= 0 || remaining % count != 0) {
+            return null;
+        }
+
+        var width = remaining / count;
+        if (width == 32) {
+            return decodePrimitiveArray(ctx, elemSlice, count);
+        }
+        if (width > 32 && width % 32 == 0) {
+            return decodeStaticTupleArray(ctx, elemSlice, count, width / 32);
+        }
+
+        return null;
+    }
+
+    static DecodedArg decodeTupleElementBody(DecodeContext ctx, byte[] elemSlice) {
+        var fields = ctx.decodeBody(elemSlice);
+        if (fields.isEmpty()) {
+            return new DecodedArg.Tuple("", List.of(), "empty tuple element");
+        }
+
+        return new DecodedArg.Tuple("", fields,
+            fields.size() + " field(s) (dynamic tuple element)");
+    }
+
+    static DecodedArg tryDecodeOffsetPrefixedRowArray(DecodeContext ctx, byte[] elemSlice) {
+        if (elemSlice.length != 64) {
+            return null;
+        }
+
+        var header = AbiCodec.uintOf(AbiCodec.slice(elemSlice, 0, 32));
+        if (header.intValueExact() != 32) {
+            return null;
+        }
+
+        var tail = AbiCodec.slice(elemSlice, 32, 32);
+        if (!AbiCodec.looksLikeDynamicArrayCount(tail)) {
+            return null;
+        }
+
+        return tryDecodeArrayFromLengthPrefix(ctx, tail, AbiCodec.uintOf(AbiCodec.slice(tail, 0, 32)));
     }
 
     static DecodedArg tryDecodeConcatenatedArray(DecodeContext ctx, byte[] body, int count, int remaining) {
@@ -180,6 +276,9 @@ public final class GreedyBodyDecoder {
         }
 
         if (width > 0 && width % 32 == 0) {
+            if (OffsetTable.parseMonotonic(body, count, remaining).length == count) {
+                return tryDecodeDynamicOffsetArray(ctx, body, count, remaining);
+            }
             return decodeStaticTupleArray(ctx, body, count, width / 32);
         }
 

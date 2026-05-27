@@ -2,6 +2,9 @@ package me.tibetty.sigbrute.decode.strategy;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -72,5 +75,29 @@ class DecodeStrategyTest {
         assertSame(DecodeStrategy.GREEDY, DecodeStrategy.fromId("greedy"));
         assertSame(DecodeStrategy.HEURISTIC_SEARCH, DecodeStrategy.fromId("heuristic"));
         assertSame(DecodeStrategy.HEURISTIC_SEARCH, DecodeStrategy.fromId("search"));
+    }
+
+    @Test
+    void fromId_treatsNullAndBlankAsGreedy() {
+        assertSame(DecodeStrategy.GREEDY, DecodeStrategy.fromId(null));
+        assertSame(DecodeStrategy.GREEDY, DecodeStrategy.fromId(""));
+        assertSame(DecodeStrategy.GREEDY, DecodeStrategy.fromId("   "));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"banana", "fast", "UNKNOWN", "greedy_extra", "heuristic_search_v2"})
+    void fromId_throwsForUnrecognisedId(String id) {
+        var ex = assertThrows(IllegalArgumentException.class, () -> DecodeStrategy.fromId(id));
+        assertTrue(ex.getMessage().contains("unknown decode strategy"),
+            "expected 'unknown decode strategy' in: " + ex.getMessage());
+    }
+
+    @Test
+    void fromId_canonicalIdRoundTrip() {
+        // id() always returns the canonical string; fromId(strategy.id()) must survive the trip.
+        for (var strategy : DecodeStrategy.values()) {
+            assertSame(strategy, DecodeStrategy.fromId(strategy.id()),
+                "round-trip failed for " + strategy.id());
+        }
     }
 }

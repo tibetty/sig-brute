@@ -1,5 +1,7 @@
 package me.tibetty.sigbrute.decode.infer;
 
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.ADDRESS;
+
 import java.util.LinkedHashSet;
 import java.util.List;
 import me.tibetty.sigbrute.util.HexUtil;
@@ -154,7 +156,7 @@ public final class TypeInferrer {
         }
 
         if (meta.isAddressShaped()) {
-            return meta.highEntropy() ? "address" : "address-or-uint160";
+            return meta.highEntropy() ? ADDRESS : "address-or-uint160";
         }
 
         if (meta.firstNonZero() >= 24) {

@@ -197,11 +197,8 @@ public final class SearchBodyDecoder {
         var bestIndex = Integer.MAX_VALUE;
         for (var i = 0; i < candidates.size(); i++) {
             var candidate = candidates.get(i);
-            if (candidate == null) {
-                continue;
-            }
-            if (best == null || candidate.score() > best.score()
-                || (candidate.score() == best.score() && i < bestIndex)) {
+            if (candidate != null && (best == null || candidate.score() > best.score()
+                || (candidate.score() == best.score() && i < bestIndex))) {
                 best = candidate;
                 bestIndex = i;
             }
@@ -213,16 +210,10 @@ public final class SearchBodyDecoder {
         List<ParseResult> candidates) {
         var bestStruct = SignatureStructure.fromDecodedArgs(best.fields());
         for (var other : candidates) {
-            if (other == null || other == best) {
-                continue;
-            }
-            if (other.score() < best.score() - NEAR_TIE_SCORE_DELTA) {
-                continue;
-            }
-            if (other.fields() == null) {
-                continue;
-            }
-            if (!bestStruct.structureEquals(SignatureStructure.fromDecodedArgs(other.fields()))) {
+            if (other != null && other != best
+                && other.score() >= best.score() - NEAR_TIE_SCORE_DELTA
+                && other.fields() != null
+                && !bestStruct.structureEquals(SignatureStructure.fromDecodedArgs(other.fields()))) {
                 ctx.warn("alternate body parse [" + other.tag() + "] score " + other.score()
                     + " (winner " + best.tag() + " " + best.score() + ")");
                 ctx.recordAlternate(other.fields(), other.tag());
@@ -235,24 +226,24 @@ public final class SearchBodyDecoder {
         var merged = best.arg();
         var winnerStruct = SignatureStructure.fromDecodedArgs(List.of(merged));
         for (var other : branches) {
-            if (other == best) {
-                continue;
-            }
-            if (other.score() < best.score() - NEAR_TIE_SCORE_DELTA) {
-                continue;
-            }
-            if (other.arg() == null) {
-                continue;
-            }
-            if (!winnerStruct.structureEquals(SignatureStructure.fromDecodedArgs(List.of(other.arg())))) {
-                ctx.warn("alternate dynamic parse [" + other.tag() + "] score " + other.score()
-                    + " (winner " + best.tag() + " " + best.score() + ")");
-                ctx.recordAlternate(List.of(other.arg()), other.tag());
-                continue;
-            }
-            merged = mergeArg(merged, other.arg());
+            merged = applyNearTieDynamicBranch(ctx, best, other, merged, winnerStruct);
         }
         return merged;
+    }
+
+    private static DecodedArg applyNearTieDynamicBranch(DecodeContext ctx, ParseResult best,
+        ParseResult other, DecodedArg merged, SignatureStructure winnerStruct) {
+        if (other == best || other.score() < best.score() - NEAR_TIE_SCORE_DELTA
+            || other.arg() == null) {
+            return merged;
+        }
+        if (!winnerStruct.structureEquals(SignatureStructure.fromDecodedArgs(List.of(other.arg())))) {
+            ctx.warn("alternate dynamic parse [" + other.tag() + "] score " + other.score()
+                + " (winner " + best.tag() + " " + best.score() + ")");
+            ctx.recordAlternate(List.of(other.arg()), other.tag());
+            return merged;
+        }
+        return mergeArg(merged, other.arg());
     }
 
     private static List<DecodedArg> mergeFieldLists(List<DecodedArg> primary, List<DecodedArg> secondary) {

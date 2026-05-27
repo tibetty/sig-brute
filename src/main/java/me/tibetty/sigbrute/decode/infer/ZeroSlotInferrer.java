@@ -1,5 +1,7 @@
 package me.tibetty.sigbrute.decode.infer;
 
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.ADDRESS;
+
 import java.util.List;
 
 /**
@@ -18,6 +20,6 @@ final class ZeroSlotInferrer implements SlotInferrer {
         if (!meta.isAllZero()) {
             return List.of();
         }
-        return List.of("uint*", "int*", "ufixed*", "fixed*", "address", "bytes32", "bool");
+        return List.of("uint*", "int*", "ufixed*", "fixed*", ADDRESS, "bytes32", "bool");
     }
 }

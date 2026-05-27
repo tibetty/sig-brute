@@ -1,21 +1,28 @@
 package me.tibetty.sigbrute.decode.strategy;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 import me.tibetty.sigbrute.decode.AlternateStructure;
 import me.tibetty.sigbrute.decode.DecodedArg;
 import me.tibetty.sigbrute.decode.DecodeResult;
 import me.tibetty.sigbrute.decode.SignatureStructure;
-import me.tibetty.sigbrute.decode.infer.GeneralizedTypeInferrer;
-import me.tibetty.sigbrute.decode.infer.TypeInferrer;
-import me.tibetty.sigbrute.decode.infer.WideTypeInferrer;
-import me.tibetty.sigbrute.decode.strategy.body.GreedyBodyDecoder;
-import me.tibetty.sigbrute.decode.strategy.body.SearchBodyDecoder;
 
 /**
  * Per-strategy decode hooks: tuple-body recursion, dynamic tails, and static-slot inference.
  * Passed explicitly through skeleton and body decoders (no thread-local state).
+ *
+ * <p>
+ * Although {@code DecodeContext} is a {@code record}, the {@code warnings} and
+ * {@code alternateStructures} fields are intentionally mutable {@link java.util.ArrayList}
+ * instances. This is a deliberate builder-accumulator pattern: one context accumulates
+ * diagnostics during a single decode pass, and {@link #toResult} snapshots them via
+ * {@link List#copyOf} before returning an immutable {@link DecodeResult}. The context itself
+ * is never shared across calls. Obtain a fresh instance per decode via
+ * {@link DecodeStrategy#newContext}.
+ *
+ * <p>
+ * Factory methods (greedy, heuristicSearch, wide variants) live on {@link DecodeStrategy}, not
+ * here, to avoid a circular {@code strategy} ↔ {@code strategy.body} package dependency.
  */
 public record DecodeContext(
     BodyDecoder bodyDecoder,
@@ -69,32 +76,5 @@ public record DecodeContext(
     public DecodeResult toResult(List<DecodedArg> args, DecodeStrategy strategy) {
         return new DecodeResult(args, List.copyOf(warnings), List.copyOf(alternateStructures),
             strategy);
-    }
-
-    public static DecodeContext greedy() {
-        return new DecodeContext(
-            GreedyBodyDecoder::decode,
-            GreedyBodyDecoder::decodeDynamicField,
-            TypeInferrer::inferStatic,
-            new ArrayList<>(),
-            new ArrayList<>());
-    }
-
-    public static DecodeContext heuristicSearch() {
-        return new DecodeContext(
-            SearchBodyDecoder::decode,
-            SearchBodyDecoder::decodeDynamicField,
-            GeneralizedTypeInferrer::inferStatic,
-            new ArrayList<>(),
-            new ArrayList<>());
-    }
-
-    public static DecodeContext heuristicSearchWide() {
-        return new DecodeContext(
-            SearchBodyDecoder::decode,
-            SearchBodyDecoder::decodeDynamicField,
-            WideTypeInferrer::inferStatic,
-            new ArrayList<>(),
-            new ArrayList<>());
     }
 }

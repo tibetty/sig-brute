@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'me.tibetty'
-version = findProperty('version') ?: '1.0.0'
+version = findProperty('version') ?: '1.1.0'
 
 java {
     toolchain {

@@ -119,19 +119,19 @@ flowchart TD
 ./gradlew shadowJar
 ```
 
-The fat JAR is produced at `build/libs/sig-brute-1.0.0-all.jar` (thin library JAR:
-`sig-brute-1.0.0.jar` for Maven dependents — see [designs/public_api.md](designs/public_api.md)).
+The fat JAR is produced at `build/libs/sig-brute-1.1.0-all.jar` (thin library JAR:
+`sig-brute-1.1.0.jar` for Maven dependents — see [designs/public_api.md](designs/public_api.md)).
 
 ## Usage
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar <config.yaml>                    # brute-force search
-java -jar build/libs/sig-brute-1.0.0-all.jar -                                # search, stdin config
-java -jar build/libs/sig-brute-1.0.0-all.jar --find-first <config.yaml>       # stop at first match
-java -jar build/libs/sig-brute-1.0.0-all.jar --skip-lookup <config.yaml>      # search without API
-java -jar build/libs/sig-brute-1.0.0-all.jar decode <calldata.txt>            # draft YAML
-java -jar build/libs/sig-brute-1.0.0-all.jar decode --validate <calldata.txt> # decode + YAML check
-java -jar build/libs/sig-brute-1.0.0-all.jar decode --strategy heuristic_search <calldata.txt>
+java -jar build/libs/sig-brute-1.1.0-all.jar <config.yaml>                    # brute-force search
+java -jar build/libs/sig-brute-1.1.0-all.jar -                                # search, stdin config
+java -jar build/libs/sig-brute-1.1.0-all.jar --find-first <config.yaml>       # stop at first match
+java -jar build/libs/sig-brute-1.1.0-all.jar --skip-lookup <config.yaml>      # search without API
+java -jar build/libs/sig-brute-1.1.0-all.jar decode <calldata.txt>            # draft YAML
+java -jar build/libs/sig-brute-1.1.0-all.jar decode --validate <calldata.txt> # decode + YAML check
+java -jar build/libs/sig-brute-1.1.0-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
 | Flag                                  | Subcommand | Effect                                                                                               |
@@ -149,8 +149,8 @@ likely signatures are tried first.
 Chain them to go from calldata to a match in one shot:
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar decode calldata.txt \
-  | java -jar build/libs/sig-brute-1.0.0-all.jar -
+java -jar build/libs/sig-brute-1.1.0-all.jar decode calldata.txt \
+  | java -jar build/libs/sig-brute-1.1.0-all.jar -
 ```
 
 Example output:
@@ -177,9 +177,9 @@ from value shapes. The `decode` subcommand does all of that mechanically and
 emits a sig-brute YAML you only need to refine.
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar decode <calldata.txt>
-java -jar build/libs/sig-brute-1.0.0-all.jar decode < calldata.txt   # or stdin
-java -jar build/libs/sig-brute-1.0.0-all.jar decode --strategy heuristic_search <calldata.txt>
+java -jar build/libs/sig-brute-1.1.0-all.jar decode <calldata.txt>
+java -jar build/libs/sig-brute-1.1.0-all.jar decode < calldata.txt   # or stdin
+java -jar build/libs/sig-brute-1.1.0-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
 Non-fatal decode warnings are printed to **stderr**; the YAML header lists them as
@@ -221,7 +221,7 @@ decoder uses element[0] and flags the assumption in a comment.
 ### Example
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar decode \
+java -jar build/libs/sig-brute-1.1.0-all.jar decode \
   src/main/resources/examples/calldata/dag_swap_by_order_id.calldata
 ```
 
@@ -449,7 +449,7 @@ find_first: false
 ```
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar src/main/resources/examples/config/erc20_transfer.yaml
+java -jar build/libs/sig-brute-1.1.0-all.jar src/main/resources/examples/config/erc20_transfer.yaml
 ```
 
 Expected match: `transfer(address,uint256)`
@@ -472,7 +472,7 @@ find_first: true
 ```
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar src/main/resources/examples/config/fill_orders.yaml
+java -jar build/libs/sig-brute-1.1.0-all.jar src/main/resources/examples/config/fill_orders.yaml
 ```
 
 Expected match: `fillOrders((address,uint256)[],bytes32)`

@@ -4,12 +4,57 @@ import me.tibetty.sigbrute.decode.abi.AbiCodec;
 import me.tibetty.sigbrute.decode.abi.AbiTypeSyntax;
 import me.tibetty.sigbrute.decode.DecodedArg;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import me.tibetty.sigbrute.decode.strategy.DecodeContext;
 
 /** Hint-guided decode of inline tuple fields (static head and dynamic tail). */
 public final class SkeletonInlineTupleDecoder {
+
+    /** Shared layout state for decoding one inline-tuple field list. */
+    private record InlineFieldDecodeContext(
+        DecodeContext ctx,
+        byte[] body,
+        List<String> fieldHints,
+        int headSize,
+        List<int[]> dynSlots,
+        boolean staticInline
+    ) {
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof InlineFieldDecodeContext other)) {
+                return false;
+            }
+            return Objects.equals(ctx, other.ctx)
+                && Arrays.equals(body, other.body)
+                && Objects.equals(fieldHints, other.fieldHints)
+                && headSize == other.headSize
+                && Objects.equals(dynSlots, other.dynSlots)
+                && staticInline == other.staticInline;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(ctx, Arrays.hashCode(body), fieldHints, headSize, dynSlots,
+                staticInline);
+        }
+
+        @Override
+        public String toString() {
+            return "InlineFieldDecodeContext[ctx=" + ctx
+                + ", body=" + Arrays.toString(body)
+                + ", fieldHints=" + fieldHints
+                + ", headSize=" + headSize
+                + ", dynSlots=" + dynSlots
+                + ", staticInline=" + staticInline
+                + "]";
+        }
+    }
 
     private SkeletonInlineTupleDecoder() {
     }
@@ -31,10 +76,11 @@ public final class SkeletonInlineTupleDecoder {
 
         var dynSlots = assignDynamicOffsetsInOrder(body, fieldHints, headSize, slotStart,
             slotStart * 32);
+        var fieldCtx = new InlineFieldDecodeContext(ctx, body, fieldHints, headSize, dynSlots, true);
         var fields = new ArrayList<DecodedArg>(fieldHints.size());
         var cursor = slotStart;
         for (var i = 0; i < fieldHints.size(); i++) {
-            fields.add(decodeStaticFieldAt(ctx, body, fieldHints, i, cursor, headSize, dynSlots));
+            fields.add(decodeFieldAt(fieldCtx, i, cursor));
             cursor += headSlotsForFieldHint(fieldHints.get(i));
         }
         return fields;
@@ -55,10 +101,11 @@ public final class SkeletonInlineTupleDecoder {
         }
 
         var dynSlots = assignDynamicOffsetsInOrder(body, fieldHints, headSize, 0, 0);
+        var fieldCtx = new InlineFieldDecodeContext(ctx, body, fieldHints, headSize, dynSlots, false);
         var fields = new ArrayList<DecodedArg>(fieldHints.size());
         var cursor = 0;
         for (var i = 0; i < fieldHints.size(); i++) {
-            fields.add(decodeHintedFieldAt(ctx, body, fieldHints, i, cursor, headSize, dynSlots));
+            fields.add(decodeFieldAt(fieldCtx, i, cursor));
             cursor += headSlotsForFieldHint(fieldHints.get(i));
         }
         return fields;
@@ -135,52 +182,46 @@ public final class SkeletonInlineTupleDecoder {
             && !usedOffsets.contains(cand[1]);
     }
 
-    static DecodedArg decodeStaticFieldAt(DecodeContext ctx, byte[] body, List<String> fieldHints,
-        int fieldIndex, int slotStart, int headSize, List<int[]> dynSlots) {
-        return decodeFieldAt(ctx, body, fieldHints, fieldIndex, slotStart, headSize, dynSlots, true);
-    }
-
-    static DecodedArg decodeHintedFieldAt(DecodeContext ctx, byte[] body, List<String> fieldHints,
-        int fieldIndex, int slotStart, int headSize, List<int[]> dynSlots) {
-        return decodeFieldAt(ctx, body, fieldHints, fieldIndex, slotStart, headSize, dynSlots, false);
-    }
-
-    private static DecodedArg decodeFieldAt(DecodeContext ctx, byte[] body, List<String> fieldHints,
-        int fieldIndex, int slotStart, int headSize, List<int[]> dynSlots, boolean staticInline) {
-        var hint = fieldHints.get(fieldIndex);
+    private static DecodedArg decodeFieldAt(InlineFieldDecodeContext fieldCtx, int fieldIndex,
+        int slotStart) {
+        var hint = fieldCtx.fieldHints().get(fieldIndex);
         if (SkeletonTypes.isInlineTuple(hint)) {
             var inner = SkeletonTypes.inlineFieldTypes(hint);
             var innerSlots = AbiTypeSyntax.staticInlineTupleHeadSlots(hint);
             if (innerSlots > 0) {
                 return new DecodedArg.Tuple("",
-                    decodeStaticFields(ctx, body, slotStart, inner),
+                    decodeStaticFields(fieldCtx.ctx(), fieldCtx.body(), slotStart, inner),
                     "nested static inline tuple");
             }
         }
-        var mapped = nthDynamicOffset(dynSlots, dynamicHintIndex(fieldHints, fieldIndex));
+        var mapped = nthDynamicOffset(fieldCtx.dynSlots(),
+            dynamicHintIndex(fieldCtx.fieldHints(), fieldIndex));
         if (mapped != null && fieldUsesDynamicHeadSlot(hint)) {
-            var next = AbiCodec.nextDynOffsetAfter(dynSlots, mapped, body.length);
-            return SkeletonArrayDecoder.decodeDynamicFieldValue(ctx, hint,
-                AbiCodec.slice(body, mapped, next - mapped));
+            var next = AbiCodec.nextDynOffsetAfter(fieldCtx.dynSlots(), mapped,
+                fieldCtx.body().length);
+            return SkeletonArrayDecoder.decodeDynamicFieldValue(fieldCtx.ctx(), hint,
+                AbiCodec.slice(fieldCtx.body(), mapped, next - mapped));
         }
 
         if (fieldUsesDynamicHeadSlot(hint)) {
-            var word = AbiCodec.slice(body, slotStart * 32, 32);
-            if (AbiCodec.isPlausibleOffset(AbiCodec.uintOf(word), body.length, headSize)) {
+            var word = AbiCodec.slice(fieldCtx.body(), slotStart * 32, 32);
+            if (AbiCodec.isPlausibleOffset(AbiCodec.uintOf(word), fieldCtx.body().length,
+                fieldCtx.headSize())) {
                 var offset = AbiCodec.safeToInt(AbiCodec.uintOf(word),
-                    staticInline
+                    fieldCtx.staticInline()
                         ? "inline tuple field offset [" + slotStart + "]"
                         : "hinted field offset at slot " + slotStart);
-                var next = AbiCodec.nextDynOffsetAfter(dynSlots, offset, body.length);
-                return SkeletonArrayDecoder.decodeDynamicFieldValue(ctx, hint,
-                    AbiCodec.slice(body, offset, next - offset));
+                var next = AbiCodec.nextDynOffsetAfter(fieldCtx.dynSlots(), offset,
+                    fieldCtx.body().length);
+                return SkeletonArrayDecoder.decodeDynamicFieldValue(fieldCtx.ctx(), hint,
+                    AbiCodec.slice(fieldCtx.body(), offset, next - offset));
             }
         }
         var arrayShape = SkeletonShape.skeletonArrayFallback(hint);
         if (arrayShape != null) {
             return arrayShape;
         }
-        return SkeletonDecoder.decodeStaticTypedSlots(hint, body, slotStart);
+        return SkeletonDecoder.decodeStaticTypedSlots(hint, fieldCtx.body(), slotStart);
     }
 
     private static List<int[]> collectPlausibleHeadOffsets(byte[] body, int headSize, int fromSlot,

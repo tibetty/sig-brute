@@ -63,4 +63,40 @@ class MainDispatchTest {
         assertEquals(1, status);
         assertTrue(errBuf.toString(StandardCharsets.UTF_8).contains("Usage:"));
     }
+
+    // ── sanitizeForTerminal ────────────────────────────────────────────
+
+    @Test
+    void sanitize_stripsAnsiCsiColorCode() {
+        // \u001B[32m is the ANSI green foreground; \u001B[0m is the reset sequence
+        var input = "\u001B[32mhello\u001B[0m";
+        assertEquals("hello", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsCursorMoveSequence() {
+        // \u001B[2J is the "erase display" CSI sequence used by adversarial APIs to clear output
+        var input = "\u001B[2Jinjected";
+        assertEquals("injected", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsC0ControlCharacters() {
+        // BEL (0x07), CR (0x0D), and NUL (0x00) must all be removed
+        var input = "ab\u0007c\rd\000e";
+        assertEquals("abcde", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsOrphanedEscapeCharacter() {
+        // An ESC (\u001B) not followed by a CSI '[' must be removed by the C0 sweep
+        var input = "before\u001Bafter";
+        assertEquals("beforeafter", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_leavesNormalSignatureUnchanged() {
+        var sig = "transfer(address,uint256)";
+        assertEquals(sig, Main.sanitizeForTerminal(sig));
+    }
 }

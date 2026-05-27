@@ -4,7 +4,9 @@ import me.tibetty.sigbrute.decode.abi.AbiCodec;
 import me.tibetty.sigbrute.decode.abi.AbiTypeSyntax;
 import me.tibetty.sigbrute.decode.DecodedArg;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import me.tibetty.sigbrute.decode.infer.TypeInferrer;
 import me.tibetty.sigbrute.decode.strategy.DecodeContext;
 
@@ -13,6 +15,55 @@ import me.tibetty.sigbrute.decode.strategy.DecodeContext;
  * {@link SkeletonLayout}, {@link SkeletonInlineTupleDecoder}, and {@link SkeletonArrayDecoder}.
  */
 public final class SkeletonDecoder {
+
+    /** Shared layout and hints for decoding one skeleton-guided argument list. */
+    record SkeletonArgContext(
+        DecodeContext ctx,
+        byte[] body,
+        List<String> hint,
+        int[] minSlots,
+        int[] tupleSlots,
+        SkeletonLayout.Plan layout,
+        SkeletonLayout.HeadSection head
+    ) {
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof SkeletonArgContext other)) {
+                return false;
+            }
+            return Objects.equals(ctx, other.ctx)
+                && Arrays.equals(body, other.body)
+                && Objects.equals(hint, other.hint)
+                && Arrays.equals(minSlots, other.minSlots)
+                && Arrays.equals(tupleSlots, other.tupleSlots)
+                && Objects.equals(layout, other.layout)
+                && Objects.equals(head, other.head);
+        }
+
+        @Override
+        public int hashCode() {
+            var result = Objects.hash(ctx, hint, layout, head);
+            result = 31 * result + Arrays.hashCode(body);
+            result = 31 * result + Arrays.hashCode(minSlots);
+            result = 31 * result + Arrays.hashCode(tupleSlots);
+            return result;
+        }
+
+        @Override
+        public String toString() {
+            return "SkeletonArgContext[ctx=" + ctx
+                + ", body=" + Arrays.toString(body)
+                + ", hint=" + hint
+                + ", minSlots=" + Arrays.toString(minSlots)
+                + ", tupleSlots=" + Arrays.toString(tupleSlots)
+                + ", layout=" + layout
+                + ", head=" + head
+                + "]";
+        }
+    }
 
     private SkeletonDecoder() {
     }
@@ -25,35 +76,34 @@ public final class SkeletonDecoder {
         var tupleSlots = SkeletonLayout.resolveTupleSlots(body, hint, demand, head);
         SkeletonLayout.absorbRemainingSlack(body, hint, demand.minSlots(), tupleSlots, head);
         var layout = SkeletonLayout.build(body, hint, demand.minSlots(), tupleSlots, head);
-        return decodeSkeletonArgs(ctx, body, hint, demand.minSlots(), tupleSlots, layout, head);
+        var argContext = new SkeletonArgContext(ctx, body, hint, demand.minSlots(), tupleSlots,
+            layout, head);
+        return decodeSkeletonArgs(argContext);
     }
 
-    static List<DecodedArg> decodeSkeletonArgs(DecodeContext ctx, byte[] body, List<String> hint,
-        int[] minSlots, int[] tupleSlots, SkeletonLayout.Plan layout,
-        SkeletonLayout.HeadSection head) {
-        var out = new ArrayList<DecodedArg>(hint.size());
-        for (var i = 0; i < hint.size(); i++) {
-            out.add(decodeSkeletonArg(ctx, body, hint, i, minSlots, tupleSlots, layout, head));
+    static List<DecodedArg> decodeSkeletonArgs(SkeletonArgContext argContext) {
+        var out = new ArrayList<DecodedArg>(argContext.hint().size());
+        for (var i = 0; i < argContext.hint().size(); i++) {
+            out.add(decodeSkeletonArg(argContext, i));
         }
         return out;
     }
 
-    static DecodedArg decodeSkeletonArg(DecodeContext ctx, byte[] body, List<String> hint, int argIndex,
-        int[] minSlots, int[] tupleSlots, SkeletonLayout.Plan layout,
-        SkeletonLayout.HeadSection head) {
-        var type = hint.get(argIndex);
-        var take = SkeletonLayout.slotsForHint(type, minSlots[argIndex], tupleSlots[argIndex]);
-        var slotStart = layout.argHeadSlot()[argIndex];
+    static DecodedArg decodeSkeletonArg(SkeletonArgContext argContext, int argIndex) {
+        var type = argContext.hint().get(argIndex);
+        var take = SkeletonLayout.slotsForHint(type, argContext.minSlots()[argIndex],
+            argContext.tupleSlots()[argIndex]);
+        var slotStart = argContext.layout().argHeadSlot()[argIndex];
 
         return switch (SkeletonTypes.kind(type)) {
             case DYNAMIC_SCALAR, DYNAMIC_PRIM_ARRAY, INLINE_TUPLE_ARRAY -> decodeSkeletonDynamicArg(
-                ctx, body, type, slotStart, argIndex, layout.dynOffsets(), head.headSize());
-            case OPAQUE_TUPLE -> decodeSkeletonTupleArg(ctx, body, take, slotStart, argIndex,
-                layout.dynOffsets(), head);
+                argContext.ctx(), argContext.body(), type, slotStart, argIndex,
+                argContext.layout().dynOffsets(), argContext.head().headSize());
+            case OPAQUE_TUPLE -> decodeSkeletonTupleArg(argContext.ctx(), argContext.body(), take,
+                slotStart, argIndex, argContext.layout().dynOffsets(), argContext.head());
             case STATIC -> SkeletonTypes.isInlineTuple(type)
-                ? decodeInlineTupleSkeletonArg(ctx, body, type, take, slotStart, argIndex,
-                    layout.dynOffsets(), head)
-                : decodeStaticTypedSlots(type, body, slotStart);
+                ? decodeInlineTupleSkeletonArg(argContext, type, take, slotStart, argIndex)
+                : decodeStaticTypedSlots(type, argContext.body(), slotStart);
         };
     }
 
@@ -89,21 +139,25 @@ public final class SkeletonDecoder {
             "static tuple, " + take + " field(s) (inferred from head occupancy)");
     }
 
-    static DecodedArg decodeInlineTupleSkeletonArg(DecodeContext ctx, byte[] body, String inlineTuple,
-        int take, int slotStart, int argIndex, List<int[]> dynOffsets, SkeletonLayout.HeadSection head) {
+    static DecodedArg decodeInlineTupleSkeletonArg(SkeletonArgContext argContext, String inlineTuple,
+        int take, int slotStart, int argIndex) {
         var fieldHints = SkeletonTypes.inlineFieldTypes(inlineTuple);
-        if (take == 1 && AbiCodec.looksLikeOffsetAt(body, slotStart, body.length, head.headSize())) {
-            var off = AbiCodec.safeToInt(AbiCodec.uintOf(AbiCodec.slice(body, slotStart * 32, 32)),
+        if (take == 1 && AbiCodec.looksLikeOffsetAt(argContext.body(), slotStart,
+            argContext.body().length, argContext.head().headSize())) {
+            var off = AbiCodec.safeToInt(AbiCodec.uintOf(
+                AbiCodec.slice(argContext.body(), slotStart * 32, 32)),
                 "head offset for inline tuple arg " + argIndex);
-            var next = AbiCodec.nextDynOffsetAfter(dynOffsets, off, body.length);
-            var tail = AbiCodec.slice(body, off, next - off);
+            var next = AbiCodec.nextDynOffsetAfter(argContext.layout().dynOffsets(), off,
+                argContext.body().length);
+            var tail = AbiCodec.slice(argContext.body(), off, next - off);
             return new DecodedArg.Tuple("",
-                SkeletonInlineTupleDecoder.decodeWithFieldHints(ctx, tail, fieldHints),
+                SkeletonInlineTupleDecoder.decodeWithFieldHints(argContext.ctx(), tail, fieldHints),
                 "dynamic inline tuple at offset " + off);
         }
 
         return new DecodedArg.Tuple("",
-            SkeletonInlineTupleDecoder.decodeStaticFields(ctx, body, slotStart, fieldHints),
+            SkeletonInlineTupleDecoder.decodeStaticFields(argContext.ctx(), argContext.body(),
+                slotStart, fieldHints),
             "static inline tuple (" + fieldHints.size() + " field(s) from skeleton)");
     }
 

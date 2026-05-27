@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-05-27
+
 ### Added
 
 - Heuristic search: wider YAML type lists (`bytes` + `string` companions), near-tie dynamic candidate merge, alternate-parse warnings, deterministic branch picking
@@ -17,12 +19,14 @@ All notable changes to this project are documented in this file.
 - Decode CLI: `--strategy`, `--validate` (YAML round-trip via `DecodeConfigValidator`)
 - `GeneralizedTypeInferrer` for heuristic-search floor patterns (`uintN+`, `int*`, …)
 - Decode package split: `abi/`, `skeleton/`, `strategy/`, `infer/`, `emit/`; tests mirror production layout
+- `CorpusFixtureLocator` and local-corpus structure tests; greedy nested dynamic-array regression test
 
 ### Changed
 
 - Skeleton and body decoders share layout kernel instead of reaching into `GreedyBodyDecoder`
 - `ConfigEmitter` emits `# WARNING:` lines and strategy header; warnings also on stderr in `decode`
 - JPMS exports `decode.strategy` and `decode.emit`; `decode.infer`, `decode.layout`, `lookup` remain internal
+- Greedy body decoder: nested dynamic array/tuple layout and inline tuple head handling
 
 ## [1.0.0] — 2026-05-23
 

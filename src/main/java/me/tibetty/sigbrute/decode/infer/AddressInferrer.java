@@ -1,5 +1,7 @@
 package me.tibetty.sigbrute.decode.infer;
 
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.ADDRESS;
+
 import java.util.List;
 
 /**
@@ -36,8 +38,8 @@ final class AddressInferrer implements SlotInferrer {
         // Any uintN for N ≥ 160 is a valid encoding when firstNonZero == 12.
         // uint160+ expands to uint160, uint168, …, uint256 (25 types) plus address.
         if (meta.hasGap()) {
-            return List.of("bytes32", "address", "uint160+");
+            return List.of("bytes32", ADDRESS, "uint160+");
         }
-        return List.of("address", "uint160+");
+        return List.of(ADDRESS, "uint160+");
     }
 }

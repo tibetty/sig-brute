@@ -1,5 +1,9 @@
 package me.tibetty.sigbrute.expander;
 
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.ADDRESS;
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.BYTES;
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.STRING;
+
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -64,12 +68,12 @@ public final class TypeRanker {
 
             // ── Group A: > 1 % ───────────────────────────────────────────────
             "uint256", // rank 1 41.5623 %
-            "address", // rank 2 30.0914 %
-            "string",  // rank 3 8.4458 %
+            ADDRESS,   // rank 2 30.0914 %
+            STRING,    // rank 3 8.4458 %
             "bytes32", // rank 4 4.1953 %
             "bool",    // rank 5 3.5895 %
             "uint8",   // rank 6 3.2538 %
-            "bytes",   // rank 7 2.6759 %
+            BYTES,     // rank 7 2.6759 %
 
             // ── Group B: 0.1 %–1 % ──────────────────────────────────────────
             "uint16",  // rank 8 1.4117 %

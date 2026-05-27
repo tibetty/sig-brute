@@ -6,8 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.List;
 import me.tibetty.sigbrute.decode.abi.AbiTestEncoder;
+import me.tibetty.sigbrute.decode.strategy.DecodeStrategy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 
@@ -16,6 +17,28 @@ import org.junit.jupiter.api.condition.EnabledIf;
  * {@link AbiTestEncoder} calldata plus local corpus fixtures when present.
  */
 class AbiDecoderNestedStructureTest {
+
+    @Test
+    void multiDimDynamicInlineTupleArray_withoutSkeleton_greedyAndSearch() {
+        var row = AbiTestEncoder.inlineTupleStaticArray(
+            AbiTestEncoder.uint(1),
+            AbiTestEncoder.address("91773f5e7ad5a47460e56e56ee6eddf450b36c7c"));
+        var matrix = AbiTestEncoder.offsetIndexedArray(row);
+        var text = AbiTestEncoder.etherscanDump(
+            "matrix((uint8,address)[][])",
+            "matrix((uint8,address)[][])",
+            matrix);
+        for (var strategy : List.of(DecodeStrategy.GREEDY, DecodeStrategy.HEURISTIC_SEARCH)) {
+            var input = CalldataInput.parse(text).withoutSkeleton();
+            var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(), strategy);
+            var known = SignatureStructure.parseSignature("matrix((uint8,address)[][])");
+            assertTrue(known.structureEquals(SignatureStructure.fromDecodedArgs(decoded)),
+                () -> strategy.id() + " structure mismatch");
+            var tuple = (DecodedArg.Tuple) decoded.get(0);
+            assertEquals("[][]", tuple.arraySuffix());
+            assertEquals(2, tuple.fields().size());
+        }
+    }
 
     @Test
     void multiDimDynamicInlineTupleArray_synthetic() {
@@ -91,23 +114,52 @@ class AbiDecoderNestedStructureTest {
     @EnabledIf("localCorpusPresent")
     void corpus_collectFee_inlineTupleDoubleArray() throws Exception {
         assertCorpusStructure(
-            "scratch/tuple-calldata-corpus/calldata/166_3ed0e7b2_collectFee.calldata",
             "collectFee(address[],address[],(uint8,address)[][])");
+    }
+
+    @Test
+    @EnabledIf("localCorpusPresent")
+    void corpus_collectFee_withoutSkeleton() throws Exception {
+        var knownSig = "collectFee(address[],address[],(uint8,address)[][])";
+        var text = Files.readString(
+            CorpusFixtureLocator.pathForSignature(knownSig),
+            StandardCharsets.UTF_8);
+        for (var strategy : List.of(DecodeStrategy.GREEDY, DecodeStrategy.HEURISTIC_SEARCH)) {
+            var input = CalldataInput.parse(text).withoutSkeleton();
+            var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(), strategy);
+            var known = SignatureStructure.parseSignature(knownSig);
+            assertTrue(known.structureEquals(SignatureStructure.fromDecodedArgs(decoded)),
+                () -> strategy.id() + " collectFee structure mismatch");
+        }
     }
 
     @Test
     @EnabledIf("localCorpusPresent")
     void corpus_executeHooks_tupleOfPrimArraysIncludingMatrix() throws Exception {
         assertCorpusStructure(
-            "scratch/tuple-calldata-corpus/calldata/058_2f82b89a_executeHooks.calldata",
             "executeHooks((address[],bytes[],uint256[],bytes32[][],bytes32[][]))");
+    }
+
+    @Test
+    @EnabledIf("localCorpusPresent")
+    void corpus_executeHooks_withoutSkeleton() throws Exception {
+        var knownSig = "executeHooks((address[],bytes[],uint256[],bytes32[][],bytes32[][]))";
+        var text = Files.readString(
+            CorpusFixtureLocator.pathForSignature(knownSig),
+            StandardCharsets.UTF_8);
+        for (var strategy : List.of(DecodeStrategy.GREEDY, DecodeStrategy.HEURISTIC_SEARCH)) {
+            var input = CalldataInput.parse(text).withoutSkeleton();
+            var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(), strategy);
+            var known = SignatureStructure.parseSignature(knownSig);
+            assertTrue(known.structureEquals(SignatureStructure.fromDecodedArgs(decoded)),
+                () -> strategy.id() + " executeHooks structure mismatch");
+        }
     }
 
     @Test
     @EnabledIf("localCorpusPresent")
     void corpus_launchStroid_staticTupleWithInlineTupleArray() throws Exception {
         assertCorpusStructure(
-            "scratch/tuple-calldata-corpus/calldata/057_f6dbcb18_launchStroidDotFun.calldata",
             "launchStroidDotFun(string,string,string,bytes32,((address,uint16)[],uint24,address,uint8))");
     }
 
@@ -115,7 +167,6 @@ class AbiDecoderNestedStructureTest {
     @EnabledIf("localCorpusPresent")
     void corpus_executeBundle_nestedTupleWithTupleArrayField() throws Exception {
         assertCorpusStructure(
-            "scratch/tuple-calldata-corpus/calldata/036_95d7a060_executeBundle.calldata",
             "executeBundle(address,(uint256,(uint256,uint256,bool,bool,uint256,uint8,(string,(string,uint8)[],bytes4[],bytes[]))[]),bytes)");
     }
 
@@ -123,7 +174,6 @@ class AbiDecoderNestedStructureTest {
     @EnabledIf("localCorpusPresent")
     void corpus_updateOrdersConfiguration_nestedTupleArrays() throws Exception {
         assertCorpusStructure(
-            "scratch/tuple-calldata-corpus/calldata/095_0edc3c64_updateOrdersConfiguration.calldata",
             "updateOrdersConfiguration(address[],"
                 + "(uint256,uint256,uint256,((uint256,uint256,int256)[],"
                 + "(uint256,uint256,int256)[]))[])");
@@ -133,16 +183,15 @@ class AbiDecoderNestedStructureTest {
     @EnabledIf("localCorpusPresent")
     void corpus_claimRewards_tupleOfPrimArraysIncludingMatrix() throws Exception {
         assertCorpusStructure(
-            "scratch/tuple-calldata-corpus/calldata/059_62b88f54_claimRewards.calldata",
             "claimRewards((address[],address[],uint256[],bytes32[][]))");
     }
 
     static boolean localCorpusPresent() {
-        return Files.isRegularFile(Path.of("scratch/tuple-calldata-corpus/manifest.json"));
+        return CorpusFixtureLocator.localCorpusPresent();
     }
 
-    private static void assertCorpusStructure(String calldataPath, String signature) throws Exception {
-        var text = Files.readString(Path.of(calldataPath), StandardCharsets.UTF_8);
+    private static void assertCorpusStructure(String signature) throws Exception {
+        var text = Files.readString(CorpusFixtureLocator.pathForSignature(signature), StandardCharsets.UTF_8);
         assertStructureMatchesSignature(text, signature);
     }
 

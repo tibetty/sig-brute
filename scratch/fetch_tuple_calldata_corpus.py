@@ -300,6 +300,7 @@ def fetch_block(block_number: int) -> dict | None:
 def persist_scan_state(state_path: Path | None, last_block: int, found_count: int) -> None:
     if not state_path:
         return
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(
         json.dumps({"last_block": last_block, "found": found_count}) + "\n",
         encoding="utf-8",

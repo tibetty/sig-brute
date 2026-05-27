@@ -19,6 +19,9 @@ import org.yaml.snakeyaml.Yaml;
  * — the {@code Function:} line in fixtures is not passed to the decoder). Ground-truth shape comes
  * from {@code text_signature} in the manifest (fetched from 4byte at corpus build time only).
  * Both {@link DecodeStrategy#GREEDY} and {@link DecodeStrategy#HEURISTIC_SEARCH} must match.
+ * <p>
+ * Fixtures that need Etherscan skeleton hints for a unique layout are excluded here; use the local
+ * corpus under {@code scratch/tuple-calldata-corpus/} for full coverage checks.
  */
 class TupleCalldataCorpusTest {
 

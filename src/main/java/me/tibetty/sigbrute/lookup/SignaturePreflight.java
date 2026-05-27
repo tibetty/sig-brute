@@ -1,6 +1,5 @@
 package me.tibetty.sigbrute.lookup;
 
-import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 import me.tibetty.sigbrute.util.HexUtil;
@@ -13,25 +12,29 @@ public final class SignaturePreflight {
     }
 
     /**
-     * Queries {@link SignatureLookup} and prints verified hits. Returns signatures whose Keccak
-     * selector matches {@code selector4}.
+     * Queries {@link SignatureLookup} and returns a {@link PreflightResult}. The
+     * {@code verified} list contains signatures whose Keccak-256 selector matches
+     * {@code selector4}; {@code diagnostics} holds any operator-visible warning messages.
+     * Printing is the caller's responsibility.
      */
-    public static List<String> run(byte[] selector4, SignatureLookup lookup, PrintStream out,
-        PrintStream err, boolean skipLookup) {
+    public static PreflightResult run(byte[] selector4, SignatureLookup lookup,
+        boolean skipLookup) {
         if (skipLookup) {
-            return List.of();
+            return PreflightResult.empty();
         }
 
         List<String> raw;
         try {
             raw = lookup.lookup(selector4);
         } catch (RuntimeException e) {
-            err.println("lookup: " + e.getMessage());
-            return List.of();
+            // Use a fixed message; e.getMessage() may contain the full request URL, which
+            // could end up persisted in CI logs or shell history.
+            return new PreflightResult(List.of(),
+                List.of("lookup: signature database unavailable — skipping preflight"));
         }
 
         if (raw.isEmpty()) {
-            return List.of();
+            return PreflightResult.empty();
         }
 
         var verified = new ArrayList<String>();
@@ -42,14 +45,11 @@ public final class SignaturePreflight {
         }
 
         if (verified.isEmpty()) {
-            err.println("lookup: API returned entries but none verified for selector 0x"
-                + HexUtil.toHex(selector4));
-            return List.of();
+            return new PreflightResult(List.of(),
+                List.of("lookup: API returned entries but none verified for selector 0x"
+                    + HexUtil.toHex(selector4)));
         }
 
-        out.println("Known signatures (4byte / Sourcify):");
-        verified.forEach(s -> out.println("  " + s));
-        out.println();
-        return verified;
+        return PreflightResult.of(List.copyOf(verified));
     }
 }

@@ -5,6 +5,7 @@ import me.tibetty.sigbrute.decode.CalldataInput;
 /** Solidity type-string helpers for skeleton slot counting and dynamic detection. */
 public final class AbiTypeSyntax {
 
+    public static final String ADDRESS = "address";
     public static final String BYTES = "bytes";
     public static final String STRING = "string";
 
@@ -241,7 +242,7 @@ public final class AbiTypeSyntax {
 
     public static boolean isStaticPrimitive(String type) {
         return switch (type) {
-            case "address", "bool" -> true;
+            case ADDRESS, "bool" -> true;
             default -> isSizedInt(type, "uint") || isSizedInt(type, "int") || isBytesN(type)
                 || isFixedMxN(type);
         };

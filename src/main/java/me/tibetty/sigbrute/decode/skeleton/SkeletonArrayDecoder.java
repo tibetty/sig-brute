@@ -254,17 +254,7 @@ public final class SkeletonArrayDecoder {
     }
 
     static boolean looksLikeDynamicArrayCount(byte[] tail) {
-        if (tail.length < 32) {
-            return false;
-        }
-
-        var count = AbiCodec.uintOf(AbiCodec.slice(tail, 0, 32));
-        if (count.bitLength() > 31) {
-            return false;
-        }
-
-        var n = count.intValue();
-        return n >= 0 && (long) n * 32 <= tail.length - 32L;
+        return AbiCodec.looksLikeDynamicArrayCount(tail);
     }
 
     private static DecodedArg decodeDynamicBytesOrString(String type, byte[] tail) {

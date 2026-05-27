@@ -58,7 +58,7 @@ public final class OffsetTable {
             }
 
             var lengthWord = AbiCodec.uintOf(AbiCodec.slice(body, from, 32));
-            if (lengthWord.bitLength() > 31) {
+            if (lengthWord.signum() == 0 || lengthWord.bitLength() > 31) {
                 return false;
             }
 

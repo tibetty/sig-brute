@@ -1,5 +1,8 @@
 package me.tibetty.sigbrute.decode.infer;
 
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.BYTES;
+import static me.tibetty.sigbrute.decode.abi.AbiTypeSyntax.STRING;
+
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -14,6 +17,8 @@ public final class GeneralizedTypePatterns {
     private static final String UINT_WILDCARD = "uint*";
     private static final String INT_WILDCARD = "int*";
     private static final String BYTES_WILDCARD = "bytes*";
+    private static final String FIXED_PREFIX = "fixed";
+    private static final String UFIXED_PREFIX = "ufixed";
     private static final String FIXED_WILDCARD = "fixed*";
     private static final String UFIXED_WILDCARD = "ufixed*";
 
@@ -50,9 +55,9 @@ public final class GeneralizedTypePatterns {
                 intFamily.add(t);
             } else if (isBytesFamilyToken(t)) {
                 bytesFamily.add(t);
-            } else if (t.startsWith("ufixed")) {
+            } else if (t.startsWith(UFIXED_PREFIX)) {
                 ufixedFamily.add(t);
-            } else if (t.startsWith("fixed")) {
+            } else if (t.startsWith(FIXED_PREFIX)) {
                 fixedFamily.add(t);
             } else {
                 other.add(t);
@@ -64,8 +69,8 @@ public final class GeneralizedTypePatterns {
         appendUintPattern(out, uintFamily);
         appendIntPattern(out, intFamily);
         appendBytesPattern(out, bytesFamily);
-        appendFixedPointPattern(out, fixedFamily, "fixed", FIXED_WILDCARD);
-        appendFixedPointPattern(out, ufixedFamily, "ufixed", UFIXED_WILDCARD);
+        appendFixedPointPattern(out, fixedFamily, FIXED_PREFIX, FIXED_WILDCARD);
+        appendFixedPointPattern(out, ufixedFamily, UFIXED_PREFIX, UFIXED_WILDCARD);
         return List.copyOf(out);
     }
 
@@ -77,11 +82,11 @@ public final class GeneralizedTypePatterns {
         var out = new LinkedHashSet<>(compact);
         var hasBytesFamily = compact.stream().anyMatch(GeneralizedTypePatterns::isBytesFamilyToken);
         if (hasBytesFamily) {
-            if (raw.contains("string")) {
-                out.add("string");
+            if (raw.contains(STRING)) {
+                out.add(STRING);
             }
-            if (raw.contains("bytes")) {
-                out.add("bytes");
+            if (raw.contains(BYTES)) {
+                out.add(BYTES);
             }
         }
         return List.copyOf(out);
@@ -141,14 +146,21 @@ public final class GeneralizedTypePatterns {
         if (bytesFamily.isEmpty()) {
             return;
         }
+        var stats = collectBytesPatternStats(bytesFamily);
+        emitBytesPattern(out, stats);
+    }
 
+    private record BytesPatternStats(boolean hasDynamicBytes, boolean hasBytesWildcard,
+        int minConcrete, boolean hasBytes32) {
+    }
+
+    private static BytesPatternStats collectBytesPatternStats(List<String> bytesFamily) {
         var hasDynamicBytes = false;
         var hasBytesWildcard = false;
         var minConcrete = Integer.MAX_VALUE;
         var hasBytes32 = false;
-
         for (var t : bytesFamily) {
-            if ("bytes".equals(t)) {
+            if (BYTES.equals(t)) {
                 hasDynamicBytes = true;
             } else if (BYTES_WILDCARD.equals(t)) {
                 hasBytesWildcard = true;
@@ -156,33 +168,40 @@ public final class GeneralizedTypePatterns {
                 hasBytes32 = true;
                 minConcrete = Math.min(minConcrete, 32);
             } else {
-                var floor = bytesFloorLength(t);
-                if (floor >= 0) {
-                    minConcrete = Math.min(minConcrete, floor);
-                } else {
-                    var m = CONCRETE_BYTES.matcher(t);
-                    if (m.matches()) {
-                        minConcrete = Math.min(minConcrete, Integer.parseInt(m.group(1)));
-                    }
-                }
+                minConcrete = Math.min(minConcrete, concreteBytesLengthOrMax(t));
             }
         }
+        return new BytesPatternStats(hasDynamicBytes, hasBytesWildcard, minConcrete, hasBytes32);
+    }
 
-        if (hasDynamicBytes) {
-            out.add("bytes");
+    private static int concreteBytesLengthOrMax(String token) {
+        var floor = bytesFloorLength(token);
+        if (floor >= 0) {
+            return floor;
         }
-        if (hasBytesWildcard) {
+        var m = CONCRETE_BYTES.matcher(token);
+        if (m.matches()) {
+            return Integer.parseInt(m.group(1));
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private static void emitBytesPattern(List<String> out, BytesPatternStats stats) {
+        if (stats.hasDynamicBytes()) {
+            out.add(BYTES);
+        }
+        if (stats.hasBytesWildcard()) {
             out.add(BYTES_WILDCARD);
             return;
         }
-        if (minConcrete == Integer.MAX_VALUE) {
+        if (stats.minConcrete() == Integer.MAX_VALUE) {
             return;
         }
-        if (minConcrete >= 32 && hasBytes32) {
+        if (stats.minConcrete() >= 32 && stats.hasBytes32()) {
             out.add("bytes32");
             return;
         }
-        out.add("bytes" + minConcrete + "+");
+        out.add(BYTES + stats.minConcrete() + "+");
     }
 
     private static void appendFixedPointPattern(List<String> out, List<String> family,
@@ -196,62 +215,87 @@ public final class GeneralizedTypePatterns {
             return;
         }
 
+        var buckets = collectFixedPointBuckets(family, prefix, wildcard);
+        out.add(resolveFixedPointPattern(prefix, wildcard, buckets));
+    }
+
+    private record FixedPointBuckets(
+        LinkedHashSet<Integer> concreteM,
+        LinkedHashSet<Integer> concreteN,
+        LinkedHashSet<Integer> starN,
+        LinkedHashSet<Integer> mStar
+    ) {
+    }
+
+    private static FixedPointBuckets collectFixedPointBuckets(List<String> family, String prefix,
+        String wildcard) {
         var concreteM = new LinkedHashSet<Integer>();
         var concreteN = new LinkedHashSet<Integer>();
         var starN = new LinkedHashSet<Integer>();
         var mStar = new LinkedHashSet<Integer>();
-
         for (var t : family) {
-            if (wildcard.equals(t)) {
-                continue;
-            }
-            var concrete = prefix.equals("fixed")
-                ? CONCRETE_FIXED.matcher(t)
-                : CONCRETE_UFIXED.matcher(t);
-            if (concrete.matches()) {
-                concreteM.add(Integer.parseInt(concrete.group(1)));
-                concreteN.add(Integer.parseInt(concrete.group(2)));
-                continue;
-            }
-            var sn = prefix.equals("fixed")
-                ? FIXED_STAR_N.matcher(t)
-                : UFIXED_STAR_N.matcher(t);
-            if (sn.matches()) {
-                starN.add(Integer.parseInt(sn.group(1)));
-                continue;
-            }
-            var ms = prefix.equals("fixed")
-                ? FIXED_M_STAR.matcher(t)
-                : UFIXED_M_STAR.matcher(t);
-            if (ms.matches()) {
-                mStar.add(Integer.parseInt(ms.group(1)));
-            }
+            collectFixedPointToken(t, prefix, wildcard, concreteM, concreteN, starN, mStar);
         }
+        return new FixedPointBuckets(concreteM, concreteN, starN, mStar);
+    }
 
-        if (starN.size() == 1 && concreteM.isEmpty() && mStar.isEmpty()) {
-            out.add(prefix + "*x" + starN.iterator().next());
+    private static void collectFixedPointToken(String token, String prefix, String wildcard,
+        LinkedHashSet<Integer> concreteM, LinkedHashSet<Integer> concreteN,
+        LinkedHashSet<Integer> starN, LinkedHashSet<Integer> mStar) {
+        if (wildcard.equals(token)) {
             return;
+        }
+        var concrete = concretePatternFor(prefix).matcher(token);
+        if (concrete.matches()) {
+            concreteM.add(Integer.parseInt(concrete.group(1)));
+            concreteN.add(Integer.parseInt(concrete.group(2)));
+            return;
+        }
+        var sn = starNPatternFor(prefix).matcher(token);
+        if (sn.matches()) {
+            starN.add(Integer.parseInt(sn.group(1)));
+            return;
+        }
+        var ms = mStarPatternFor(prefix).matcher(token);
+        if (ms.matches()) {
+            mStar.add(Integer.parseInt(ms.group(1)));
+        }
+    }
+
+    private static Pattern concretePatternFor(String prefix) {
+        return FIXED_PREFIX.equals(prefix) ? CONCRETE_FIXED : CONCRETE_UFIXED;
+    }
+
+    private static Pattern starNPatternFor(String prefix) {
+        return FIXED_PREFIX.equals(prefix) ? FIXED_STAR_N : UFIXED_STAR_N;
+    }
+
+    private static Pattern mStarPatternFor(String prefix) {
+        return FIXED_PREFIX.equals(prefix) ? FIXED_M_STAR : UFIXED_M_STAR;
+    }
+
+    private static String resolveFixedPointPattern(String prefix, String wildcard,
+        FixedPointBuckets buckets) {
+        var concreteM = buckets.concreteM();
+        var concreteN = buckets.concreteN();
+        var starN = buckets.starN();
+        var mStar = buckets.mStar();
+        if (starN.size() == 1 && concreteM.isEmpty() && mStar.isEmpty()) {
+            return prefix + "*x" + starN.iterator().next();
         }
         if (mStar.size() == 1 && concreteN.isEmpty() && starN.isEmpty()) {
-            out.add(prefix + mStar.iterator().next() + "x*");
-            return;
+            return prefix + mStar.iterator().next() + "x*";
         }
         if (concreteM.size() == 1 && concreteN.size() == 1 && starN.isEmpty() && mStar.isEmpty()) {
-            var m = concreteM.iterator().next();
-            var n = concreteN.iterator().next();
-            out.add(prefix + m + "x" + n);
-            return;
+            return prefix + concreteM.iterator().next() + "x" + concreteN.iterator().next();
         }
         if (concreteN.size() == 1 && starN.isEmpty() && mStar.isEmpty() && !concreteM.isEmpty()) {
-            out.add(prefix + "*x" + concreteN.iterator().next());
-            return;
+            return prefix + "*x" + concreteN.iterator().next();
         }
         if (concreteM.size() == 1 && concreteN.isEmpty() && starN.isEmpty() && mStar.isEmpty()) {
-            out.add(prefix + concreteM.iterator().next() + "x*");
-            return;
+            return prefix + concreteM.iterator().next() + "x*";
         }
-
-        out.add(wildcard);
+        return wildcard;
     }
 
     private static String resolveUintPattern(boolean hasUintWildcard, int uintFloor) {
@@ -273,7 +317,7 @@ public final class GeneralizedTypePatterns {
     }
 
     private static boolean isBytesFamilyToken(String t) {
-        return t.equals("bytes") || t.startsWith("bytes");
+        return t.equals(BYTES) || t.startsWith(BYTES);
     }
 
     private static boolean isConcreteUint(String t) {

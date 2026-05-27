@@ -66,6 +66,9 @@ public final class AbiCodec {
         if (headSize < 0) {
             return headSize;
         }
+        if (headSize == 32) {
+            return headSize;
+        }
         while (headSize + 32 <= body.length) {
             var next = nextHeadSizeFromTailWord(body, headSize);
             if (next < 0) {
@@ -81,6 +84,9 @@ public final class AbiCodec {
      * extended range), returns that boundary in bytes; otherwise {@code -1}.
      */
     public static int nextHeadSizeFromTailWord(byte[] body, int headSize) {
+        if (headSize == 32) {
+            return -1;
+        }
         var v = uintOf(slice(body, headSize, 32));
         if (v.signum() <= 0 || v.bitLength() > 31) {
             return -1;
@@ -162,6 +168,20 @@ public final class AbiCodec {
                 "dynamic array element count exceeds int range: 0x" + v.toString(16));
         }
         return v.intValueExact();
+    }
+
+    public static boolean looksLikeDynamicArrayCount(byte[] tail) {
+        if (tail.length < 32) {
+            return false;
+        }
+
+        var count = uintOf(slice(tail, 0, 32));
+        if (count.bitLength() > 31) {
+            return false;
+        }
+
+        var n = count.intValue();
+        return n >= 0 && (long) n * 32 <= tail.length - 32L;
     }
 
     public static int safeToInt(BigInteger v, String context) {

@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import me.tibetty.sigbrute.decode.AbiDecoder;
 import me.tibetty.sigbrute.decode.CalldataInput;
+import me.tibetty.sigbrute.decode.CorpusFixtureLocator;
 import me.tibetty.sigbrute.decode.DecodedArg;
 import me.tibetty.sigbrute.decode.SignatureStructure;
 import org.junit.jupiter.api.Test;
@@ -19,13 +20,14 @@ import org.junit.jupiter.api.condition.EnabledIf;
 class AbiDecoderInlineTupleSkeletonTest {
 
     static boolean localCorpusPresent() {
-        return Files.isRegularFile(Path.of("scratch/tuple-calldata-corpus/manifest.json"));
+        return CorpusFixtureLocator.localCorpusPresent();
     }
 
     @Test
     void forwardEth_bytesAndStaticTuple() throws Exception {
+        var knownSig = "forwardEth(bytes,(uint256,address))";
         var text = Files.readString(
-            Path.of("scratch/tuple-calldata-corpus/calldata/011_fcaabe3b_forwardEth.calldata"),
+            CorpusFixtureLocator.pathForSignature(knownSig),
             StandardCharsets.UTF_8);
         var input = CalldataInput.parse(text);
         var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes());
@@ -36,14 +38,14 @@ class AbiDecoderInlineTupleSkeletonTest {
         var tup = (DecodedArg.Tuple) decoded.get(1);
         assertEquals("", tup.arraySuffix());
         assertEquals(2, tup.fields().size());
-        assertTrue(SignatureStructure.parseSignature("forwardEth(bytes,(uint256,address))")
+        assertTrue(SignatureStructure.parseSignature(knownSig)
             .structureEquals(SignatureStructure.fromDecodedArgs(decoded)));
     }
 
     @Test
     void send_singleDynamicTupleArg() throws Exception {
         var text = Files.readString(
-            Path.of("scratch/tuple-calldata-corpus/calldata/013_27ad57d5_send.calldata"),
+            Path.of("scratch/tuple-calldata-corpus/calldata/047_27ad57d5_send.calldata"),
             StandardCharsets.UTF_8);
         var input = CalldataInput.parse(text);
         var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes());

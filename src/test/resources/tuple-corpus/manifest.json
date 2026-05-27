@@ -1,11 +1,5 @@
 [
   {
-    "id": "001_effbec13_swap.calldata",
-    "selector": "0xeffbec13",
-    "text_signature": "swap((uint8,address,address,address,uint24,int24,address,bytes)[],address,uint256,uint256,uint256)",
-    "file": "calldata/001_effbec13_swap.calldata"
-  },
-  {
     "id": "004_571d3dc7_execute.calldata",
     "selector": "0x571d3dc7",
     "text_signature": "execute((address,uint256,bytes)[],bytes32)",
@@ -18,22 +12,10 @@
     "file": "calldata/005_6b13fcb1_batchTransfer.calldata"
   },
   {
-    "id": "006_e3ee963b_accountForPositionBatch.calldata",
-    "selector": "0xe3ee963b",
-    "text_signature": "accountForPositionBatch((uint256,bool,uint256,uint8,address[],address[],bytes32[],bytes[],uint128,bytes32[])[],uint256[])",
-    "file": "calldata/006_e3ee963b_accountForPositionBatch.calldata"
-  },
-  {
     "id": "007_34fc23ce_claimAll.calldata",
     "selector": "0x34fc23ce",
     "text_signature": "claimAll((bytes32,uint256,address,uint256,bytes32[],address,bool,uint256,uint256)[])",
     "file": "calldata/007_34fc23ce_claimAll.calldata"
-  },
-  {
-    "id": "010_a1f1ce43_startBridgeTokensViaAcrossV4.calldata",
-    "selector": "0xa1f1ce43",
-    "text_signature": "startBridgeTokensViaAcrossV4((bytes32,string,string,address,address,address,uint256,uint256,bool,bool),(bytes32,bytes32,bytes32,bytes32,uint256,uint128,bytes32,uint32,uint32,uint32,bytes))",
-    "file": "calldata/010_a1f1ce43_startBridgeTokensViaAcrossV4.calldata"
   },
   {
     "id": "015_f7b5c341_deployAndExecute.calldata",

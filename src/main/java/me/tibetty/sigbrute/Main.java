@@ -13,7 +13,6 @@ import me.tibetty.sigbrute.model.SearchConfig;
 import me.tibetty.sigbrute.parser.YamlConfigParser;
 import me.tibetty.sigbrute.search.SearchEngine;
 import me.tibetty.sigbrute.search.SearchException;
-import me.tibetty.sigbrute.util.Keccak256Util;
 
 public class Main {
 
@@ -86,6 +85,8 @@ public class Main {
         err.println("Options:");
         err.println("  --find-first    stop after the first matching signature (overrides YAML)");
         err.println("  --skip-lookup   skip 4byte.directory / Sourcify pre-search lookup");
+        err.println("                  (without this flag the 4-byte selector is sent to public");
+        err.println("                   signature databases before brute-force search begins)");
         err.println("  --validate      (decode) parse emitted YAML before writing stdout");
     }
 
@@ -111,18 +112,42 @@ public class Main {
      */
     private static Integer tryFinishFromLookup(SearchConfig config, boolean skipLookup,
         PrintStream out, PrintStream err) {
-        var known = SignaturePreflight.run(config.selector(), new HttpSignatureLookup(), out, err,
+        var result = SignaturePreflight.run(config.selector(), new HttpSignatureLookup(),
             skipLookup);
-        if (!config.findFirst() || known.isEmpty()) {
+
+        // Surface diagnostics (warnings / transient errors) before any further output.
+        result.diagnostics().forEach(err::println);
+
+        if (result.hasMatches()) {
+            out.println("Known signatures (4byte / Sourcify):");
+            // Sanitize before printing: strip ANSI escape sequences and control characters
+            // from API-returned strings to prevent terminal injection (OWASP A03).
+            result.verified().forEach(s -> out.println("  " + sanitizeForTerminal(s)));
+            out.println();
+        }
+
+        if (!config.findFirst() || !result.hasMatches()) {
             return null;
         }
-        var first = known.get(0);
-        if (!Keccak256Util.selectorMatches(first, config.selector())) {
-            return null;
-        }
+        // All entries in result.verified() were already Keccak-verified in SignaturePreflight.
         out.println("First verified lookup match (find_first — search skipped):");
-        out.println("  " + first);
+        out.println("  " + sanitizeForTerminal(result.verified().get(0)));
         return 0;
+    }
+
+    /**
+     * Strips ANSI CSI escape sequences and ASCII control characters from API-returned strings
+     * before printing to the terminal.
+     *
+     * <p>
+     * Prevents terminal injection: a compromised or adversarial upstream API could embed escape
+     * sequences that overwrite terminal output or hide content (OWASP A03).
+     */
+    static String sanitizeForTerminal(String s) {
+        // Strip ANSI CSI sequences: ESC [ ... <letter>  (e.g. colour codes, cursor moves)
+        var stripped = s.replaceAll("\\x1B\\[[;\\d]*[A-Za-z]", "");
+        // Strip remaining C0 control characters (0x00–0x1F) and DEL (0x7F)
+        return stripped.replaceAll("[\\x00-\\x1F\\x7F]", "");
     }
 
     private static int runSearch(SearchConfig config, PrintStream out, PrintStream err) {
