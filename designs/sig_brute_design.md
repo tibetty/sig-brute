@@ -3,8 +3,8 @@
 - **Maintainers:** [tibetty](https://github.com/tibetty) (see [AUTHORS](../AUTHORS))
 - **Audience:** Engineering contributors, Ethereum tooling practitioners
 - **Status:** Living design document (public OSS)
-- **Last reviewed:** 2026-05-23
-- **Revision:** 2026-05-24 — workflow diagrams updated for decode/search pipeline, `infer/` slot-inferrer chain, `emit/` YAML output, TypeRanker ordering, and `--find-first` sequential mode
+- **Last reviewed:** 2026-05-27
+- **Revision:** 2026-05-27 — `DecodeContext` / `DecodeStrategy`, `decode.layout`, `DecodeResult` + warnings, CLI signature preflight, `decode --validate`; package map aligned with `ARCHITECTURE.md`
 
 ## Context and Goals
 
@@ -40,13 +40,20 @@ search.
 - Multi-node sharding: contiguous equal-sized slices selectable by `shard_index` /
   `total_shards` YAML keys.
 - Checkpoint/resume: snapshot current position as `long[]`, reconstruct stream from it.
+- Search CLI signature preflight: HTTP lookup via Sourcify unified API, then 4byte.directory
+  (`--skip-lookup` for offline); Keccak verification before brute-force.
+- Pluggable decode strategies (`greedy` vs `heuristic_search`) with non-fatal warnings on
+  fallback paths; optional `decode --validate` YAML round-trip.
 
 ### Out of scope
 
-- Network calls or database lookups (no 4byte.directory, Etherscan API, or signature DB).
+- Network in the **library** `SearchEngine` (no 4byte or RPC from stable API). CLI search
+  may call signature directories only as a preflight shortcut.
 - Decompilation or disassembly of EVM bytecode.
 - Solidity source parsing.
-- `int*`, `fixed*`, `ufixed*` inference — the decoder never emits signed or fixed-point types; users must add `int*` / `fixed*` candidates to the YAML by hand.
+- `int*`, `fixed*`, `ufixed*` under **greedy** decode — add signed/fixed candidates by hand.
+  **Heuristic search** may collapse runs to `int*`, `fixed*`, `ufixed*` via
+  `GeneralizedTypeInferrer`.
 - `bool` inference for values other than 0 and 1 — the decoder emits `bool` for zero slots and value-1 slots (the only valid bool encodings), but any other value cannot be `bool` and the type is excluded.
 
 ### Decisions already made
@@ -93,47 +100,56 @@ no systematic guarantee of finding the correct type mapping.
 ```mermaid
 flowchart TD
     A["stdin / file<br>Etherscan calldata<br>or raw hex"] -->|sig-brute decode| B(CalldataInput.parse)
-    B --> C(AbiDecoder.decodeArgs)
-    C --> D{"skeleton<br>hint?"}
-    D -->|yes| E[decodeWithSkeleton]
-    D -->|no| F["decodeTupleBody<br>heuristic"]
-    E --> G["DecodedArg tree<br>Leaf / PrimArray / Tuple"]
-    F --> G
-    G --> H("SlotMeta + SlotInferrer chain<br>Zero / ValueOne / LeftAligned / …")
-    H --> G
-    G --> I("PrototypeRenderer + ConfigEmitter<br>YAML")
-    I --> J[sig-brute config.yaml]
+    B --> C(AbiDecoder.decodeResult)
+    C --> D{"topLevelHint?"}
+    D -->|yes| E[skeleton.SkeletonDecoder]
+    D -->|no| F{DecodeStrategy}
+    F -->|greedy| G[GreedyBodyDecoder]
+    F -->|heuristic_search| H[SearchBodyDecoder]
+    E --> I[DecodeContext]
+    G --> I
+    H --> I
+    I --> J["DecodeResult<br>args + warnings"]
+    J --> K("ConfigEmitter + optional --validate")
+    K --> L[sig-brute config.yaml]
 
-    J -->|sig-brute config.yaml| K(YamlConfigParser)
-    K --> L("SearchConfig<br>record")
-    L --> M(ArgSpec.expand)
-    M --> N("TypeExpander + TypeRanker<br>per-arg dimensions")
-    N --> O{sharding?}
-    O -->|shard_index / total_shards| P(CartesianStream.shard)
-    O -->|single node| Q(new CartesianStream)
-    P --> R{find_first?}
-    Q --> R
-    R -->|yes| S("sequential stream<br>TypeRanker order preserved")
-    R -->|no| T("CartesianSpliterator<br>ForkJoinPool")
-    S --> U[combo → sig string]
+    L -->|sig-brute search| M{lookup unless --skip-lookup}
+    M -->|verified + --find-first| W[stdout — signature]
+    M -->|continue| N(YamlConfigParser)
+    N --> O("SearchConfig<br>record")
+    O --> P(ArgSpec.expand)
+    P --> Q("TypeExpander + TypeRanker")
+    Q --> R{sharding?}
+    R -->|shard| S(CartesianStream.shard)
+    R -->|single| T(CartesianStream)
+    S --> U{find_first?}
     T --> U
-    U --> V(Keccak256Util selectorMatches)
-    V -->|match| W[stdout — signature]
+    U -->|yes| V[sequential stream]
+    U -->|no| X[ForkJoinPool]
+    V --> Y[Keccak256Util]
+    X --> Y
+    Y -->|match| W
 ```
 
 ### Package map
 
-| Package                        | Responsibility                                                                                                  |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `me.tibetty.sigbrute`          | `Main` — CLI dispatch                                                                                           |
-| `me.tibetty.sigbrute.decode`        | `CalldataInput`, `AbiDecoder`, `DecodeMain`, `DecodedArg`                                                       |
-| `me.tibetty.sigbrute.decode.infer`  | `TypeInferrer`, `SlotMeta`, `SlotInferrer` implementations (`Zero`, `ValueOne`, `LeftAligned`, …)               |
-| `me.tibetty.sigbrute.decode.emit`   | `ConfigEmitter`, `PrototypeRenderer`                                                                            |
-| `me.tibetty.sigbrute.model`    | `ArgSpec` (sealed), `LeafArgSpec`, `TupleArgSpec`, `SearchConfig`                                               |
-| `me.tibetty.sigbrute.parser`   | `YamlConfigParser`                                                                                              |
-| `me.tibetty.sigbrute.search`   | `SearchEngine`, `SearchException`                                                                               |
-| `me.tibetty.sigbrute.expander` | `TypeExpander`, `TypeRanker`                                                                                    |
-| `me.tibetty.sigbrute.util`     | `CartesianStream`, `CartesianProduct`, `Dimension`, `Keccak256Util`, `HexUtil`                                  |
+| Package | Responsibility |
+| ------- | -------------- |
+| `me.tibetty.sigbrute` | `Main` — search/decode dispatch, signature preflight |
+| `me.tibetty.sigbrute.lookup` | `HttpSignatureLookup`, `SignaturePreflight` (CLI) |
+| `me.tibetty.sigbrute.decode` | `AbiDecoder`, `DecodeResult`, `CalldataInput`, `DecodeMain`, `DecodedArg` |
+| `me.tibetty.sigbrute.decode.strategy` | `DecodeStrategy`, `DecodeContext` |
+| `me.tibetty.sigbrute.decode.layout` | `OffsetTable`, `DynamicHeadSlots` |
+| `me.tibetty.sigbrute.decode.skeleton` | Skeleton-guided top-level decode |
+| `me.tibetty.sigbrute.decode.infer` | `TypeInferrer`, `GeneralizedTypeInferrer`, slot inferrers |
+| `me.tibetty.sigbrute.decode.emit` | `ConfigEmitter`, `PrototypeRenderer`, `DecodeConfigValidator` |
+| `me.tibetty.sigbrute.model` | `ArgSpec`, `SearchConfig` |
+| `me.tibetty.sigbrute.parser` | `YamlConfigParser` |
+| `me.tibetty.sigbrute.search` | `SearchEngine` (no network) |
+| `me.tibetty.sigbrute.expander` | `TypeExpander`, `TypeRanker` |
+| `me.tibetty.sigbrute.util` | `CartesianStream`, `Keccak256Util`, `HexUtil` |
+
+See [`decode/ARCHITECTURE.md`](../src/main/java/me/tibetty/sigbrute/decode/ARCHITECTURE.md) for the full decode tree.
 
 ### Key data types
 
@@ -191,21 +207,19 @@ Output: `record CalldataInput(byte[] selector, String methodName, List<String> t
 
 ### `AbiDecoder`
 
-Two decoding paths, both producing a `List<DecodedArg>`:
+Entry points: `decodeArgs(…)` (args only) and `decodeResult(…)` (args + warnings + strategy).
+Both accept an optional `DecodeStrategy` (`GREEDY` default, `HEURISTIC_SEARCH` for branch
+scoring and generalized floor patterns).
 
-**Skeleton-guided** (`decodeWithSkeleton`): used when Etherscan supplies the top-level type
-list. The decoder assigns head slots to each top-level argument, resolves `tuple` slot counts
-by comparing plausible offsets against the head region, then recurses into dynamic tail
-sections.
+**Skeleton-guided** (`skeleton.SkeletonDecoder`): when Etherscan supplies `topLevelHint`.
+Assigns head slots, resolves inline `tuple` widths via `layout.OffsetTable`, recurses through
+`DecodeContext` for nested dynamic sections. Strategy affects nested body/dynamic hooks only.
 
-**Free-form** (`decodeTupleBody`): used for nested bodies with no type hint. Scans for a
-head/tail boundary by looking for slots whose uint value is a plausible byte offset into
-the body (`>= headSize`, aligned to 32, within body bounds). Static slots are inferred
-directly; offset slots are decoded recursively.
+**Free-form body** (`strategy.body`): when no top-level hint — `GreedyBodyDecoder` (first-fit
+head/tail, `TypeInferrer`) or `SearchBodyDecoder` (scored branches, `GeneralizedTypeInferrer`).
 
-**Dynamic field decoding** (`decodeDynamicField`): interprets the first slot as either a
-length prefix (bytes/string) or an element count (array). Falls back to a recursive
-`decodeTupleBody` if neither heuristic matches.
+**Dynamic fields**: length-prefixed `bytes`/`string`, dynamic arrays, or recursive body parse
+on fallback; warnings recorded on `DecodeContext` when heuristics disagree.
 
 **`bytes[]` vs `()[]` disambiguation** (`allElementsLookLikeBytes`): both `bytes[]` and
 `()[]` use a dynamic-offset table. The decoder disambiguates them by checking whether every
@@ -529,13 +543,17 @@ pbpaste | sig-brute decode > config.yaml
 # From raw hex
 
 echo "0xa9059cbb000...3e8" | sig-brute decode > config.yaml
+
+# Heuristic-search floors + YAML self-check
+
+sig-brute decode --strategy heuristic_search --validate calldata.txt > config.yaml
 ```
 
 **Search subcommand**
 
 ```bash
 
-# Single-node full scan
+# Single-node full scan (Sourcify → 4byte preflight unless --skip-lookup)
 
 sig-brute config.yaml
 
@@ -543,6 +561,10 @@ sig-brute config.yaml
 
 sig-brute --find-first config.yaml
 sig-brute config.yaml --find-first   # flag position is flexible
+
+# Offline — no HTTP lookup
+
+sig-brute --skip-lookup config.yaml
 
 # Stdin
 
@@ -556,7 +578,16 @@ sig-brute shard2.yaml
 ```
 
 **`--find-first` flag** — equivalent to setting `find_first: true` in the YAML, but applied
-at invocation time without editing the config file. When both are present, CLI wins.
+at invocation time without editing the config file. When both are present, CLI wins. A
+verified signature from preflight can satisfy find-first without running search.
+
+**`--skip-lookup`** — skip HTTP signature directories (air-gapped / reproducible runs).
+
+**`decode --strategy`** — `greedy` (default) or `heuristic_search`.
+
+**`decode --validate`** — parse emitted YAML and verify selector + args before stdout.
+
+**`decode --ignore-skeleton`** / **`decode --wide`** — see [README § Choosing decode and search settings](../README.md#choosing-decode-and-search-settings) for situational guidance (when to use each strategy, avoid piping decode into search, one YAML per layout).
 
 Exit codes: `0` = success (search completed or decode OK), `1` = error, `2` = empty input
 (decode only).
@@ -574,6 +605,7 @@ Exit codes: `0` = success (search completed or decode OK), `1` = error, `2` = em
 | 3. Decode subcommand             | `CalldataInput`, `AbiDecoder`, `ConfigEmitter`, `DecodeMain`                                                                                                               | Complete    |
 | 3b. Decoder accuracy             | `bytes[]` vs `()[]` disambiguation; expanded array element intersection; `uint160+` for high-entropy address slots; `uintN+[]` TypeExpander fix; sequential `--find-first` | Complete    |
 | 3c. Decoder correctness          | `bool` inference for zero and value-1 slots; skeleton-typed primitive-array decoding (`address[]`, `uint256[]` no longer misidentified as `bytes`)                         | Complete    |
+| 3d. Decode refactor              | `DecodeContext`, `decode.layout`, `DecodeResult` + warnings, CLI lookup + `decode --validate`, strategy enum                                                                | Complete    |
 | 4. Checkpoint persistence        | Write `snapshot()` to disk; reload on restart                                                                                                                              | Not started |
 | 5. Progress persistence          | Periodic checkpoint to survive JVM crashes during multi-day runs                                                                                                           | Not started |
 | 6. `int` / fixed-point inference | Detect signed slots (two's-complement high bit) and `fixedMxN` shapes                                                                                                      | Not started |
@@ -581,7 +613,7 @@ Exit codes: `0` = success (search completed or decode OK), `1` = error, `2` = em
 ## Constraints
 
 - **Team / ops:** Small OSS project; CI runs `./gradlew test` on GitHub Actions (see `.github/workflows/ci.yml`).
-- **Compliance:** No user data processed; no network calls; no compliance requirements.
+- **Compliance:** No user data stored; optional CLI HTTP to public signature directories only; library search has no network.
 - **Timeline:** No fixed deadlines. Multi-day brute-force runs are the primary operational mode.
 - **Budget:** Runs on commodity hardware. Multi-node sharding designed for rented VMs, not Kubernetes.
 

@@ -1,19 +1,23 @@
 package me.tibetty.sigbrute.decode;
 
 import java.io.IOException;
-
-import me.tibetty.sigbrute.decode.emit.ConfigEmitter;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import me.tibetty.sigbrute.decode.emit.ConfigEmitter;
+import me.tibetty.sigbrute.decode.emit.DecodeConfigValidator;
+import me.tibetty.sigbrute.decode.strategy.DecodeStrategy;
 
 /**
  * Entry point for the {@code decode} subcommand.
  *
  * <p>
- * Usage: {@code sig-brute decode [input-file]} — reads from the file if given, otherwise from
- * stdin. Writes the generated YAML to stdout.
+ * Usage: {@code sig-brute decode [--strategy greedy|heuristic_search] [--validate]
+ * [--ignore-skeleton] [--wide] [input-file]}
+ * — reads from the file if given, otherwise from stdin. Writes the generated YAML to stdout.
  */
 public final class DecodeMain {
 
@@ -48,26 +52,81 @@ public final class DecodeMain {
      * @return {@code 0} success, {@code 1} parse/decode error, {@code 2} empty input
      */
     public int decode(String[] args) throws IOException {
-        String text;
-        if (args.length == 0) {
-            text = new String(System.in.readAllBytes(), StandardCharsets.UTF_8);
-        } else {
-            text = Files.readString(Path.of(args[0]), StandardCharsets.UTF_8);
-        }
-        if (text.isBlank()) {
-            err.println("decode: input is empty");
-            return 2;
-        }
-
+        var parsed = parseArgs(args);
         try {
-            var input = CalldataInput.parse(text);
-            var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes());
-            var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), decoded);
+            var input = readInput(parsed.fileArgs());
+            if (input == null) {
+                return 2;
+            }
+
+            var hint = parsed.ignoreSkeleton() ? null : input.topLevelTypes();
+            var result = AbiDecoder.decodeResult(input.body(), hint, parsed.strategy(),
+                parsed.wideCandidates());
+            for (var warning : result.warnings()) {
+                err.println("decode warning: " + warning);
+            }
+
+            var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), result);
+            if (parsed.validate()) {
+                DecodeConfigValidator.validate(input.selector(), yaml);
+            }
             out.print(yaml);
             return 0;
         } catch (RuntimeException e) {
             err.println("decode: " + e.getMessage());
             return 1;
         }
+    }
+
+    private record ParsedArgs(
+        DecodeStrategy strategy,
+        boolean validate,
+        boolean ignoreSkeleton,
+        boolean wideCandidates,
+        List<String> fileArgs
+    ) {
+    }
+
+    private static ParsedArgs parseArgs(String[] args) {
+        var strategy = DecodeStrategy.GREEDY;
+        var validate = false;
+        var ignoreSkeleton = false;
+        var wideCandidates = false;
+        var rest = new ArrayList<String>();
+        var i = 0;
+        while (i < args.length) {
+            var arg = args[i];
+            if ("--strategy".equals(arg) && i + 1 < args.length) {
+                strategy = DecodeStrategy.fromId(args[i + 1]);
+                i += 2;
+            } else if ("--validate".equals(arg)) {
+                validate = true;
+                i++;
+            } else if ("--ignore-skeleton".equals(arg)) {
+                ignoreSkeleton = true;
+                i++;
+            } else if ("--wide".equals(arg)) {
+                wideCandidates = true;
+                i++;
+            } else {
+                rest.add(arg);
+                i++;
+            }
+        }
+        return new ParsedArgs(strategy, validate, ignoreSkeleton, wideCandidates, List.copyOf(rest));
+    }
+
+    private CalldataInput readInput(List<String> fileArgs) throws IOException {
+        String text;
+        if (fileArgs.isEmpty()) {
+            text = new String(System.in.readAllBytes(), StandardCharsets.UTF_8);
+        } else {
+            text = Files.readString(Path.of(fileArgs.get(0)), StandardCharsets.UTF_8);
+        }
+        if (text.isBlank()) {
+            err.println("decode: input is empty");
+            return null;
+        }
+        return CalldataInput.parse(text);
     }
 }

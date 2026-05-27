@@ -26,14 +26,23 @@ import me.tibetty.sigbrute.util.HexUtil;
 public record CalldataInput(byte[] selector, byte[] body, String methodName,
     List<String> topLevelTypes) {
 
+    /**
+     * Same selector and body as this input, but without Etherscan / 4byte header hints. Use for
+     * corpus verification so decode runs on calldata bytes only (heuristic body + nested decode).
+     */
+    public CalldataInput withoutSkeleton() {
+        return new CalldataInput(selector, body, null, null);
+    }
+
     private static final int REGEX_CASE_MULTILINE = Pattern.CASE_INSENSITIVE | Pattern.MULTILINE;
 
     private static final Pattern WORD_LINE = Pattern.compile("\\[(\\d+)]:\\s*([0-9a-f]{64})",
         Pattern.CASE_INSENSITIVE);
     private static final Pattern METHOD_ID = Pattern
         .compile("^\\s*MethodID\\s*:\\s*(?:0x)?([0-9a-f]{8})\\s*$", REGEX_CASE_MULTILINE);
-    private static final Pattern FUNCTION = Pattern
-        .compile("^\\s*Function\\s*:\\s*([_a-z]\\w*)\\s*\\(([^)]*)\\)\\s*$", REGEX_CASE_MULTILINE);
+    private static final Pattern FUNCTION_NAME = Pattern.compile(
+        "^\\s*Function\\s*:\\s*([_a-z]\\w*)\\s*\\(",
+        REGEX_CASE_MULTILINE);
 
     private static final byte[] MISSING_SELECTOR = new byte[0];
 
@@ -49,12 +58,37 @@ public record CalldataInput(byte[] selector, byte[] body, String methodName,
     }
 
     private static ParseHeader parseHeader(String text) {
-        var fn = FUNCTION.matcher(text);
+        var fn = FUNCTION_NAME.matcher(text);
         if (!fn.find()) {
             return new ParseHeader(null, null);
         }
 
-        return new ParseHeader(fn.group(1), splitTopLevelTypes(fn.group(2)));
+        var params = extractBalancedParams(text, fn.end());
+        if (params == null) {
+            return new ParseHeader(fn.group(1), null);
+        }
+
+        return new ParseHeader(fn.group(1), splitTopLevelTypes(params));
+    }
+
+    /**
+     * Reads the parameter list inside {@code Function: name(...)} using balanced-paren scanning so
+     * nested {@code (T,...)} tuple types are not truncated at the first {@code )}.
+     */
+    static String extractBalancedParams(String text, int paramsStart) {
+        var depth = 1;
+        for (var i = paramsStart; i < text.length(); i++) {
+            var ch = text.charAt(i);
+            if (ch == '(') {
+                depth++;
+            } else if (ch == ')') {
+                depth--;
+                if (depth == 0) {
+                    return text.substring(paramsStart, i);
+                }
+            }
+        }
+        return null;
     }
 
     private static byte[] parseSelector(String text) {
@@ -130,7 +164,7 @@ public record CalldataInput(byte[] selector, byte[] body, String methodName,
         return new CalldataInput(sel, body, header.methodName(), header.topLevelTypes());
     }
 
-    static List<String> splitTopLevelTypes(String inner) {
+    public static List<String> splitTopLevelTypes(String inner) {
         var out = new ArrayList<String>();
         var depth = 0;
         var cur = new StringBuilder();

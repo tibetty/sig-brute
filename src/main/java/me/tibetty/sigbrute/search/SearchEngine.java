@@ -39,7 +39,10 @@ public class SearchEngine {
         // ordering is respected element-by-element and findFirst() terminates as soon as
         // the corpus-optimal prototype is reached. ForkJoin leaf tasks run to completion
         // regardless of findAny/findFirst, so parallel mode cannot short-circuit early.
-        var displayThreads = config.findFirst() ? 1 : config.parallelism();
+        int displayThreads = config.parallelism();
+        if (config.findFirst()) {
+            displayThreads = 1;
+        }
         out.printf("Method candidates : %d%n", config.methodNames().size());
         out.printf("Total search space: %s%n", nf.format(total));
         out.printf("Threads           : %d%n", displayThreads);

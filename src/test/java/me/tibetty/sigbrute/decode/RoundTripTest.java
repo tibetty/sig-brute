@@ -1,6 +1,6 @@
 package me.tibetty.sigbrute.decode;
 
-import static me.tibetty.sigbrute.decode.AbiTestEncoder.*;
+import static me.tibetty.sigbrute.decode.abi.AbiTestEncoder.*;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -9,7 +9,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.stream.Stream;
-import me.tibetty.sigbrute.decode.AbiTestEncoder.Val;
+import me.tibetty.sigbrute.decode.abi.AbiTestEncoder.Val;
 import me.tibetty.sigbrute.decode.emit.ConfigEmitter;
 import me.tibetty.sigbrute.parser.YamlConfigParser;
 import me.tibetty.sigbrute.search.SearchEngine;

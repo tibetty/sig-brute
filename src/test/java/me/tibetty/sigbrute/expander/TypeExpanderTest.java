@@ -55,6 +55,14 @@ class TypeExpanderTest {
     }
 
     @Test
+    void expandBytesLengthFloor() {
+        var out = TypeExpander.expand("bytes4+");
+        assertEquals(29, out.size());
+        assertEquals("bytes4", out.get(0));
+        assertEquals("bytes32", out.get(out.size() - 1));
+    }
+
+    @Test
     void rejectsInvalidFixedPattern() {
         assertThrows(IllegalArgumentException.class, () -> TypeExpander.expand("fixed*x0"));
     }

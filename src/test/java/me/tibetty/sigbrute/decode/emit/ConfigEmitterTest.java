@@ -3,7 +3,10 @@ package me.tibetty.sigbrute.decode.emit;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
+import me.tibetty.sigbrute.decode.AlternateStructure;
 import me.tibetty.sigbrute.decode.DecodedArg;
+import me.tibetty.sigbrute.decode.DecodeResult;
+import me.tibetty.sigbrute.decode.strategy.DecodeStrategy;
 import org.junit.jupiter.api.Test;
 
 class ConfigEmitterTest {
@@ -82,6 +85,18 @@ class ConfigEmitterTest {
         var args = List.<DecodedArg>of(new DecodedArg.Leaf(List.of("uint256"), null));
         var yaml = ConfigEmitter.emit(new byte[]{0, 0, 0, 1}, "  ", args);
         assertTrue(yaml.contains("method_names: [TODO_method_name]"));
+    }
+
+    @Test
+    void emitAlternateStructures_rendersCommentedPrototypes() {
+        var winner = List.<DecodedArg>of(new DecodedArg.Leaf(List.of("uint256"), null));
+        var altArgs = List.<DecodedArg>of(
+            new DecodedArg.PrimArray("[]", List.of("address"), "alt array"));
+        var result = new DecodeResult(winner, List.of(), List.of(new AlternateStructure(altArgs,
+            "head:64")), DecodeStrategy.HEURISTIC_SEARCH);
+        var yaml = ConfigEmitter.emit(new byte[]{0, 0, 0, 1}, "foo", result);
+        assertTrue(yaml.contains("# Alternate structures"));
+        assertTrue(yaml.contains("#   foo(address[])  # head:64"));
     }
 
     @Test

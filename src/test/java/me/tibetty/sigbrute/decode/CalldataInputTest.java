@@ -27,6 +27,21 @@ class CalldataInputTest {
     }
 
     @Test
+    void withoutSkeleton_clearsMethodNameAndTopLevelTypes() {
+        var input = """
+            Function: transfer(address to, uint256 amount)
+
+            MethodID: 0xa9059cbb
+            [0]:  000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
+            [1]:  00000000000000000000000000000000000000000000000000000000000003e8
+            """;
+        var in = CalldataInput.parse(input).withoutSkeleton();
+        assertEquals(64, in.body().length);
+        assertNull(in.methodName());
+        assertNull(in.topLevelTypes());
+    }
+
+    @Test
     void parseRawHex() {
         var hex = "0xa9059cbb"
             + "000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
@@ -54,6 +69,21 @@ class CalldataInputTest {
     @Test
     void rejectsTextWithoutHex() {
         assertThrows(IllegalArgumentException.class, () -> CalldataInput.parse("hello world"));
+    }
+
+    @Test
+    void parsesInlineTupleTypesInFunctionHeader() {
+        var input = """
+            Function: forwardEth(bytes,(uint256,address))
+
+            MethodID: 0xfcaabe3b
+            [0]: 0000000000000000000000000000000000000000000000000000000000000060
+            [1]: 000000000000000000000000000000000000000000000000000016bcc41e9000
+            [2]: 00000000000000000000000082d9a407f99a95db4671e7021d625cbd0787a407
+            """;
+        var in = CalldataInput.parse(input);
+        assertEquals("forwardEth", in.methodName());
+        assertEquals(List.of("bytes", "(uint256,address)"), in.topLevelTypes());
     }
 
     @Test

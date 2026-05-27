@@ -22,7 +22,9 @@ public final class TypeExpander {
      * Supported wildcards (* suffix is preserved and appended to each expansion): uint* → uint8,
      * uint16, ..., uint256 uintN+ → uintN, uint(N+8), ..., uint256 (floor: value needs ≥ N bits)
      * uintN- → uint8, uint16, ..., uintN (ceiling: value fits in ≤ N bits) int* → int8, int16, ...,
-     * int256 bytes* → bytes1, bytes2, ..., bytes32 fixed* → fixed8x1, fixed8x2, ..., fixed256x80
+     * uintN- → uint8, uint16, ..., uintN (ceiling: value fits in ≤ N bits) int* → int8, int16, ...,
+     * int256 bytes* → bytes1, bytes2, ..., bytes32 bytesN+ → bytesN, bytes(N+1), …, bytes32
+     * (minimum static byte length) fixed* → fixed8x1, fixed8x2, ..., fixed256x80
      * (all valid M×N) ufixed* → ufixed8x1, ..., ufixed256x80 fixed*xN → fixed8xN, fixed16xN, ... (M
      * wildcard, fixed N) fixedMx* → fixedMx1, fixedMx2, ... (fixed M, N wildcard)
      *
@@ -47,6 +49,11 @@ public final class TypeExpander {
         var intBounded = tryExpandIntBounded(pattern);
         if (!intBounded.isEmpty()) {
             return intBounded;
+        }
+
+        var bytesBounded = tryExpandBytesBounded(pattern);
+        if (!bytesBounded.isEmpty()) {
+            return bytesBounded;
         }
 
         if (pattern.startsWith(UFIXED)) {
@@ -143,6 +150,40 @@ public final class TypeExpander {
         }
 
         return List.of();
+    }
+
+    /**
+     * {@code bytesN+} floor: {@code bytesN}, {@code bytes(N+1)}, …, {@code bytes32} (minimum static
+     * width in bytes, not bits).
+     */
+    private static List<String> tryExpandBytesBounded(String pattern) {
+        if (!pattern.startsWith(BYTES) || pattern.equals(BYTES)) {
+            return List.of();
+        }
+        var bracket = pattern.indexOf('[');
+        var arraySuffix = bracket >= 0 ? pattern.substring(bracket) : "";
+        var base = bracket >= 0 ? pattern.substring(0, bracket) : pattern;
+        if (!base.endsWith("+")) {
+            return List.of();
+        }
+        var numStr = base.substring(BYTES.length(), base.length() - 1);
+        if (numStr.isEmpty()) {
+            return List.of();
+        }
+        try {
+            var minLen = Integer.parseInt(numStr);
+            if (minLen < 1 || minLen > 32) {
+                return List.of();
+            }
+            var expanded = IntStream.rangeClosed(minLen, 32)
+                .mapToObj(n -> BYTES + n)
+                .toList();
+            return arraySuffix.isEmpty()
+                ? expanded
+                : expanded.stream().map(t -> t + arraySuffix).toList();
+        } catch (NumberFormatException e) {
+            return List.of();
+        }
     }
 
     private static List<String> expandIntRange(String pattern, boolean floor) {

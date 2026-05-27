@@ -1,9 +1,10 @@
-package me.tibetty.sigbrute.decode;
+package me.tibetty.sigbrute.decode.abi;
 
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import me.tibetty.sigbrute.decode.CalldataInput;
 import me.tibetty.sigbrute.util.HexUtil;
 import me.tibetty.sigbrute.util.Keccak256Util;
 
@@ -11,8 +12,8 @@ import me.tibetty.sigbrute.util.Keccak256Util;
  * Minimal ABI encoder for unit tests.
  *
  * <p>
- * Encodes a subset of Solidity ABI types and emits Etherscan-format calldata text that {@link
- * CalldataInput#parse} accepts. Supports:
+ * Encodes a subset of Solidity ABI types and emits Etherscan-format calldata text that
+ * {@link CalldataInput#parse} accepts. Supports:
  *
  * <ul>
  * <li><b>Static (32-byte inline):</b> {@code uint256}, {@code bool}, {@code address}, {@code
@@ -172,6 +173,41 @@ public final class AbiTestEncoder {
         putUint(payload, 0, elements.length);
         for (int i = 0; i < elements.length; i++) {
             System.arraycopy(elements[i].word(), 0, payload, 32 + i * 32, 32);
+        }
+        return new Val.Dynamic(payload);
+    }
+
+    /**
+     * One element of a dynamic {@code (T,...)}[] array with statically packed tuple fields in the
+     * tail (count word + consecutive field words).
+     */
+    public static Val.Dynamic inlineTupleStaticArray(Val.Static... fields) {
+        var body = concat(fields);
+        var paddedLen = ((body.length + 31) / 32) * 32;
+        var payload = new byte[32 + paddedLen];
+        putUint(payload, 0, 1);
+        System.arraycopy(body, 0, payload, 32, body.length);
+        return new Val.Dynamic(payload);
+    }
+
+    /**
+     * Dynamic array whose elements are separate dynamic blobs (ABI offset table). Used for nested
+     * {@code T[][]} outer dimensions.
+     */
+    public static Val.Dynamic offsetIndexedArray(Val.Dynamic... elements) {
+        var tableBytes = 32 + elements.length * 32;
+        var payloadBytes = 0;
+        for (var element : elements) {
+            payloadBytes += element.payload().length;
+        }
+        var payload = new byte[tableBytes + payloadBytes];
+        putUint(payload, 0, elements.length);
+        var dataPos = tableBytes;
+        for (var i = 0; i < elements.length; i++) {
+            putUint(payload, 32 + i * 32, dataPos - 32);
+            System.arraycopy(elements[i].payload(), 0, payload, dataPos,
+                elements[i].payload().length);
+            dataPos += elements[i].payload().length;
         }
         return new Val.Dynamic(payload);
     }

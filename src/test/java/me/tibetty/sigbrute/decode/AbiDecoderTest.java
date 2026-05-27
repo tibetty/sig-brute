@@ -74,22 +74,17 @@ class AbiDecoderTest {
     }
 
     @Test
-    void oversizedDynamicOffsetThrowsIllegalArgument() {
+    void oversizedDynamicOffsetFallsBackToStaticDecode() {
         var body = oversizedOffsetCalldataBody();
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-            () -> decodeArgsWithBytesHint(body));
-        assertTrue(ex.getMessage().contains("exceeds int range"),
-            "expected 'exceeds int range' in: " + ex.getMessage());
+        var decoded = AbiDecoder.decodeArgs(body, List.of("bytes"));
+        assertEquals(1, decoded.size());
+        assertInstanceOf(DecodedArg.Leaf.class, decoded.get(0));
     }
 
     private static byte[] oversizedOffsetCalldataBody() {
         var body = new byte[32];
         body[23] = 0x01; // bitLength=57 — exceeds isPlausibleOffset int guard
         return body;
-    }
-
-    private static void decodeArgsWithBytesHint(byte[] body) {
-        AbiDecoder.decodeArgs(body, List.of("bytes"));
     }
 
     @Test

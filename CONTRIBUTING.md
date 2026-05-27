@@ -17,9 +17,13 @@ cd sig-brute
 ## What to contribute
 
 - Bug fixes and regression tests
-- Documentation improvements (README, `config-schema.yaml`, examples)
+- Documentation improvements (README, `designs/`, `decode/ARCHITECTURE.md`, `config-schema.yaml`, examples)
 - New example configs or calldata fixtures with tests
 - Performance improvements to search or decode paths
+
+Decode tests should live in the package that mirrors production code
+(`decode/abi/`, `decode/strategy/`, …). Integration tests for end-to-end decode stay in
+`decode/` at the package root.
 
 Please open an issue before large feature work (new subcommands, breaking config
 format changes, or new runtime dependencies).

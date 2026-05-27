@@ -43,18 +43,16 @@ curl -s "https://www.4byte.directory/api/v1/signatures/?hex_signature=0xaabbccdd
 Only proceed to brute-force if both APIs return zero results **or** all returned
 entries are structurally incompatible with the decoded calldata.
 
-## TODO
+## Decode / search settings
 
-- [ ] **Integrate signature API lookup as an automatic pre-flight step** before
-  brute-force search. Query both endpoints in order:
-  1. `https://api.4byte.sourcify.dev/v1/signatures/?hex_signature=<selector>`
-     (Sourcify unified — merges openchain.xyz, 4byte, and verified-contract data; ~4.7 M signatures)
-  2. `https://www.4byte.directory/api/v1/signatures/?hex_signature=<selector>`
-     (original 4byte.directory; fallback)
+Situational guide (greedy vs `heuristic_search`, `--wide`, `--ignore-skeleton`, decode→search,
+one YAML per layout): [README § Choosing decode and search settings](README.md#choosing-decode-and-search-settings).
 
-  Verify each returned signature by hashing it and comparing the first 4 bytes
-  to the target selector. Short-circuit with the match if one is found.
-  Surface a `--skip-lookup` flag for offline / air-gapped use.
+## Signature lookup (implemented)
+
+Before brute-force search, `Main` calls `HttpSignatureLookup` (Sourcify, then 4byte.directory
+fallback), verifies Keccak selectors, and prints hits. Use `--skip-lookup` for offline use.
+With `--find-first`, a verified lookup match skips search.
 
 ## Build and test
 

@@ -14,8 +14,8 @@ class ModuleBoundaryTest {
 
     private static final Set<String> EXPORTED_PACKAGES = Set.of("me.tibetty.sigbrute.model",
         "me.tibetty.sigbrute.parser", "me.tibetty.sigbrute.search", "me.tibetty.sigbrute.decode",
-        "me.tibetty.sigbrute.decode.emit", "me.tibetty.sigbrute.expander",
-        "me.tibetty.sigbrute.util");
+        "me.tibetty.sigbrute.decode.strategy", "me.tibetty.sigbrute.decode.emit",
+        "me.tibetty.sigbrute.expander", "me.tibetty.sigbrute.util");
 
     @Test
     void stablePackagesAreExportedInModuleDescriptor() {

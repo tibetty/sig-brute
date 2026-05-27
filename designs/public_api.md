@@ -22,7 +22,7 @@ Everything else is implementation detail and may change in minor releases withou
 |------|---------|------------------|
 | **Stable** | Semver-guaranteed for 1.x; breaking changes only in 2.0 | Listed under [Stable API](#stable-api) |
 | **CLI** | Shipped in the same JAR; not for programmatic embedding | `Main`, `DecodeMain` |
-| **Internal** | Not exported; no compatibility promise | `decode.infer.*`, package-private helpers |
+| **Internal** | Not exported; no compatibility promise | `decode.infer.*`, `decode.layout.*`, `decode.abi.*`, `decode.skeleton.*`, `lookup.*` |
 
 ### Versioning policy (1.x)
 
@@ -74,7 +74,9 @@ Throws `IllegalArgumentException` on invalid YAML or schema violations. Uses Sna
 
 Constructor: `SearchEngine(SearchConfig config, PrintStream out)` — progress and summary go to `out` (use `PrintStream.nullOutputStream()` for silent runs).
 
-Does **not** call 4byte.directory or any network API.
+Does **not** call 4byte.directory or any network API. The **CLI** `Main` runs optional
+signature lookup before search (see [CLI-only](#cli-only-not-library-api)); library callers
+compose `SearchEngine` directly.
 
 ---
 
@@ -84,12 +86,22 @@ Does **not** call 4byte.directory or any network API.
 |------|------|
 | `CalldataInput` | Parsed selector, body, optional Etherscan method name / top-level type skeleton |
 | `CalldataInput.parse(String)` | Etherscan block or raw `0x…` hex |
-| `AbiDecoder` | `decodeArgs(byte[] body, List<String> topLevelHint)` → `List<DecodedArg>` |
+| `CalldataInput.withoutSkeleton()` | Same bytes, no `Function:` / method hints (corpus verification) |
+| `AbiDecoder` | `decodeArgs(body, hint)` / `decodeArgs(body, hint, strategy)` → `List<DecodedArg>` |
+| `DecodeResult` | `args`, `warnings`, `alternateStructures`, `strategy` from `AbiDecoder.decodeResult(…)` |
 | `DecodedArg` | Sealed tree: `Leaf`, `PrimArray`, `Tuple` (mirrors YAML shapes) |
+
+### `me.tibetty.sigbrute.decode.strategy` — decode strategy selection
+
+| Type | Role |
+|------|------|
+| `DecodeStrategy` | `GREEDY` (default) or `HEURISTIC_SEARCH`; `fromId(String)` for CLI parity |
 
 `topLevelHint` may be `null` or empty for fully heuristic decode. When Etherscan provides `Function: foo(uint256, tuple, tuple[])`, pass the parsed type list to remove top-level ambiguity.
 
-**Heuristic limits** (documented, not API bugs): no `int*` / `fixed*` inference; `bool` only for 0/1 slots; tuple innards are guesses.
+**Heuristic limits** (documented, not API bugs): greedy decode uses full per-slot candidate lists; `HEURISTIC_SEARCH` collapses floors (`uintN+`, `bytesN+`, `int*`, `fixed*`, …). `bool` only for 0/1 slots. Tuple innards and body layout without a skeleton hint are guesses — review emitted YAML before search.
+
+**Situational guide** (strategy, `--wide`, `--ignore-skeleton`, decode→search workflow, multiple configs): [README § Choosing decode and search settings](../README.md#choosing-decode-and-search-settings).
 
 ---
 
@@ -97,8 +109,9 @@ Does **not** call 4byte.directory or any network API.
 
 | Type | Role |
 |------|------|
-| `ConfigEmitter.emit(…)` | Full sig-brute YAML string |
+| `ConfigEmitter.emit(…)` | Full sig-brute YAML string (overload accepts `DecodeResult` for warnings) |
 | `PrototypeRenderer.render(…)` | One-line `name(type,…)` summary (first candidate per leaf) |
+| `DecodeConfigValidator` | Parse emitted YAML; verify selector + non-empty `args` (used by `decode --validate`) |
 
 ---
 
@@ -132,10 +145,26 @@ These are stable for integrators building custom search orchestration (e.g. exte
 
 | Type | Role |
 |------|------|
-| `me.tibetty.sigbrute.Main` | `main`, package-private `run(args, out, err)` |
-| `me.tibetty.sigbrute.decode.DecodeMain` | `decode` subcommand; file/stdin glue |
+| `me.tibetty.sigbrute.Main` | `main`, package-private `run(args, out, err)`; search flags `--find-first`, `--skip-lookup`; Sourcify → 4byte preflight |
+| `me.tibetty.sigbrute.decode.DecodeMain` | `decode` subcommand; `--strategy`, `--validate`, `--ignore-skeleton` |
 
 Prefer composing **`YamlConfigParser` + `SearchEngine`** and **`CalldataInput` + `AbiDecoder` + `ConfigEmitter`** in your own application entry points.
+
+**Search CLI flags**
+
+| Flag | Effect |
+|------|--------|
+| `--find-first` | Sequential scan in `TypeRanker` order; verified lookup match skips search |
+| `--skip-lookup` | Skip HTTP signature preflight (offline / air-gapped) |
+
+**Decode CLI flags**
+
+| Flag | Effect |
+|------|--------|
+| `--strategy greedy\|heuristic_search` | Body decode policy (default `greedy`) |
+| `--validate` | Re-parse emitted YAML; assert selector + args before stdout |
+| `--ignore-skeleton` | Ignore `Function:` header; decode body with heuristics only (corpus verification) |
+| `--wide` | With `heuristic_search`: union greedy + compact candidates per leaf (larger YAML) |
 
 The **fat JAR** (`shadowJar`, classifier none) is the supported CLI distribution. The **Maven Central JAR** is the library artifact (no relocated dependencies except as declared in the POM).
 
@@ -143,11 +172,18 @@ The **fat JAR** (`shadowJar`, classifier none) is the supported CLI distribution
 
 ## Internal (not exported)
 
-Package `me.tibetty.sigbrute.decode.infer` and all types therein:
+| Package | Role |
+|---------|------|
+| `decode.infer` | `TypeInferrer`, `GeneralizedTypeInferrer`, slot inferrers |
+| `decode.layout` | `OffsetTable`, `DynamicHeadSlots` |
+| `decode.abi` | `AbiCodec`, type-string helpers |
+| `decode.skeleton` | Skeleton-guided top-level decode |
+| `decode.strategy.body` | `GreedyBodyDecoder`, `SearchBodyDecoder` (use `DecodeStrategy` + `DecodeContext` instead) |
+| `lookup` | `HttpSignatureLookup`, `SignaturePreflight` (CLI only) |
 
-- `TypeInferrer`, `SlotInferrer`, `AddressInferrer`, `LeftAlignedInferrer`, `RightAlignedUintInferrer`, `ZeroSlotInferrer`, `ValueOneInferrer`, `SlotMeta`
+`DecodeContext` is exported via `decode.strategy` for advanced integrators; prefer `AbiDecoder.decodeResult(…)` for normal use.
 
-Enforced by `module-info.java` (JPMS). Do not rely on reflection into these packages.
+Enforced by `module-info.java` (JPMS). Do not rely on reflection into non-exported packages.
 
 ---
 
@@ -157,8 +193,10 @@ Enforced by `module-info.java` (JPMS). Do not rely on reflection into these pack
 
 ```java
 var input = CalldataInput.parse(etherscanText);
-var args = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes());
-var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), args);
+var result = AbiDecoder.decodeResult(
+    input.body(), input.topLevelTypes(), DecodeStrategy.HEURISTIC_SEARCH);
+var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), result);
+// result.warnings() — non-fatal; ConfigEmitter adds # WARNING: lines to YAML
 ```
 
 ### YAML → signatures

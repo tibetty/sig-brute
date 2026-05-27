@@ -44,18 +44,24 @@ sig-brute automates that last step.
 >
 > Only proceed to brute-force if both return no results, or none of the returned
 > signatures match your decoded calldata structure.
+>
+> The search subcommand runs the same lookup automatically (Sourcify, then 4byte.directory).
+> Use `--skip-lookup` when offline. With `--find-first`, a verified lookup match skips
+> brute-force entirely.
 
 ## Recommended workflow
 
-1. **Check [4byte.directory](https://www.4byte.directory/) first.** It indexes
-   millions of known signatures. If the selector is already there with an
-   unambiguous match, you are done — no brute-force needed.
+1. **Look up the selector.** Use the curl commands above, or run search and let sig-brute
+   query the APIs for you. If the selector is already indexed with an unambiguous match,
+   you are done — no brute-force needed.
 
 2. **Decode the calldata.** From a transaction on Etherscan (or any ABI decoder),
    determine the number of arguments, which are tuples, and any constraints you can
    read from the encoded values (e.g. an address-shaped field, a small integer, a
    32-byte hash). The bundled [`decode` subcommand](#decoder-from-calldata-to-draft-yaml)
    does this mechanically — drop in an Etherscan dump and it emits a draft YAML.
+   See [Choosing decode and search settings](#choosing-decode-and-search-settings) for
+   which strategy and flags to use.
 
 3. **Write a sig-brute config.** Express what you know as method name candidates and
    per-field type wildcards. Use `():`/`"()[]":` keys to describe tuple structure.
@@ -75,15 +81,15 @@ likely signature is tried first.
 
 ```mermaid
 flowchart TD
-    subgraph preflight [1. Preflight — manual]
-        A[Selector] --> B{4byte / Sourcify<br/>API lookup}
-        B -->|match| Z([Signature found])
+    subgraph preflight [1. Preflight]
+        A[Selector] --> B{sig-brute lookup<br/>or manual curl}
+        B -->|match + --find-first| Z([Signature found])
         B -->|no match| C[Calldata from Etherscan]
     end
 
     subgraph decodePhase [2. sig-brute decode]
-        C --> D[AbiDecoder + slot inferrers]
-        D --> E[Draft YAML config]
+        C --> D[AbiDecoder + DecodeStrategy]
+        D --> E[Draft YAML + warnings]
     end
 
     subgraph refine [3. Refine config]
@@ -119,15 +125,26 @@ The fat JAR is produced at `build/libs/sig-brute-1.0.0-all.jar` (thin library JA
 ## Usage
 
 ```bash
-java -jar build/libs/sig-brute-1.0.0-all.jar <config.yaml>              # brute-force search
-java -jar build/libs/sig-brute-1.0.0-all.jar -                          # search, config from stdin
-java -jar build/libs/sig-brute-1.0.0-all.jar --find-first <config.yaml> # stop at first match
-java -jar build/libs/sig-brute-1.0.0-all.jar decode <calldata.txt>      # draft YAML from calldata
+java -jar build/libs/sig-brute-1.0.0-all.jar <config.yaml>                    # brute-force search
+java -jar build/libs/sig-brute-1.0.0-all.jar -                                # search, stdin config
+java -jar build/libs/sig-brute-1.0.0-all.jar --find-first <config.yaml>       # stop at first match
+java -jar build/libs/sig-brute-1.0.0-all.jar --skip-lookup <config.yaml>      # search without API
+java -jar build/libs/sig-brute-1.0.0-all.jar decode <calldata.txt>            # draft YAML
+java -jar build/libs/sig-brute-1.0.0-all.jar decode --validate <calldata.txt> # decode + YAML check
+java -jar build/libs/sig-brute-1.0.0-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
-The `--find-first` flag overrides `find_first: false` in the YAML (equivalent to
-`find_first: true`). In find-first mode the search runs sequentially in
-type-frequency order so the most likely signatures are tried first.
+| Flag                                  | Subcommand | Effect                                                                                               |
+| ------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `--find-first`                        | search     | Overrides YAML `find_first`; sequential scan in `TypeRanker` order; verified lookup hit skips search |
+| `--skip-lookup`                       | search     | Skip Sourcify / 4byte.directory preflight                                                            |
+| `--strategy greedy\|heuristic_search` | decode     | Body decode policy (default: `greedy`)                                                               |
+| `--validate`                          | decode     | Re-parse emitted YAML and verify selector before stdout                                              |
+| `--ignore-skeleton`                   | decode     | Ignore `Function:` header; decode calldata bytes only (corpus / stress runs)                         |
+| `--wide`                              | decode     | With `heuristic_search`: union greedy + compact type candidates per slot (larger YAML)               |
+
+In find-first mode the search runs sequentially in type-frequency order so the most
+likely signatures are tried first.
 
 Chain them to go from calldata to a match in one shot:
 
@@ -162,7 +179,12 @@ emits a sig-brute YAML you only need to refine.
 ```bash
 java -jar build/libs/sig-brute-1.0.0-all.jar decode <calldata.txt>
 java -jar build/libs/sig-brute-1.0.0-all.jar decode < calldata.txt   # or stdin
+java -jar build/libs/sig-brute-1.0.0-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
+
+Non-fatal decode warnings are printed to **stderr**; the YAML header lists them as
+`# WARNING:` lines. Use `--validate` to confirm the emitted YAML parses and its selector
+matches the input calldata.
 
 ### Input formats
 
@@ -172,7 +194,9 @@ java -jar build/libs/sig-brute-1.0.0-all.jar decode < calldata.txt   # or stdin
    the static-vs-dynamic tuple ambiguity at the top level and lets the decoder
    correctly partition head slots between args.
 2. **Raw hex** — a single hex string (with or without `0x`), optionally
-   whitespace-separated. Without a skeleton the decoder uses pure heuristics.
+   whitespace-separated. Without a skeleton the decoder uses heuristic body parsing
+   (`greedy` by default, or `heuristic_search` for branch scoring and generalized types
+   like `uintN+`, `bytesN+`, `int*`).
 
 ### What gets emitted
 
@@ -206,7 +230,7 @@ The decoder identifies the inline-static `baseRequest` tuple (5 fields), the
 dynamic `paths` tuple array (3 elements), and recursively decodes each path
 element's structure into nested `()`/`"()[]":` mappings.
 
-Truncated output (pipe directly to sig-brute):
+Truncated output (review before search — see [Choosing settings](#choosing-decode-and-search-settings)):
 
 ```yaml
 # Generated by sig-brute decode — review and refine before running.
@@ -246,16 +270,69 @@ candidates based on what you know; everything else is ready to run.
 
 - Per-slot type inference is a heuristic; `uint256` vs `bytes32`, `address` vs
   `uint160`, and `bytes` vs `string` are indistinguishable from the bytes alone.
-- The decoder infers `bool` only for zero-valued and value-1 slots — the only two valid
-  `bool` encodings. Any other value cannot be `bool` and the type is excluded. `int*` and
-  fixed-point types are never inferred; add them to YAML candidates by hand if you know a
-  parameter is signed or fixed-point.
+- **`greedy`** (default) emits full per-slot candidate lists. **`heuristic_search`** collapses
+  uint/int/bytes/fixed runs to floor patterns (`uintN+`, `int*`, …) suitable for YAML.
+- The decoder infers `bool` only for zero-valued and value-1 slots. `int*` / `fixed*` are
+  only collapsed under `heuristic_search`; add them by hand under `greedy` if needed.
 - For `tuple[]` whose elements have different internal shapes (rare in
   practice), only element[0]'s shape is emitted. Review the calldata and
   broaden the YAML if needed.
 - Without a `Function:` skeleton the decoder cannot tell an inline-static
   tuple's fields apart from sibling args; it emits each head slot as a
   top-level arg. Pass the Etherscan function line to get the right grouping.
+- `# Alternate structures` lines (heuristic search) are **comments only** — the
+  search schema accepts one `args` tree per file. Use separate configs for each
+  layout you want to brute-force.
+
+### Choosing decode and search settings
+
+Use this when picking flags or explaining a run to someone else. Full API detail
+is in [`designs/public_api.md`](designs/public_api.md).
+
+#### Decode strategy
+
+| Situation | Prefer | Why |
+| --------- | ------ | --- |
+| Etherscan dump with a trusted `Function:` line | `greedy` (default) | Uses skeleton hints; fast draft YAML |
+| Raw hex or no reliable `Function:` line | `heuristic_search` + `--ignore-skeleton` | Explores head/tail and dynamic tails on bytes only |
+| Complex tuples, layout ambiguous | `heuristic_search` | Scores branches; warnings and `# Alternate structures` on near-ties |
+| Compact YAML for search (`uint160+`, `int*`) | `heuristic_search` | Collapses types to wildcards/floors |
+| Broad per-slot type lists | `heuristic_search --wide` | Unions compact patterns with full greedy lists (larger YAML) |
+| Maximum per-slot candidates with skeleton | `greedy` | Full `TypeInferrer` output at each leaf |
+| Corpus / regression checks | `heuristic_search` + `--ignore-skeleton` | Same path as `TupleCalldataCorpusTest` |
+
+When a `Function:` header is present, **both** strategies use skeleton-guided
+top-level decode; strategy only changes nested body parsing and type emission.
+
+#### Decode flags
+
+| Flag | When |
+| ---- | ---- |
+| `--ignore-skeleton` | Raw hex, distrust the header, or corpus-style verification |
+| `--wide` | With `heuristic_search` only; search missed types and you accept a larger config |
+| `--validate` | Before committing YAML or running search; checks selector + parseable `args` |
+| (none) | Normal Etherscan paste |
+
+#### From decode to search
+
+The YAML schema has a **single** `args` list per file: many **types** per position,
+not multiple incompatible **layouts** in one config.
+
+| Do | Don't |
+| -- | ----- |
+| `decode … > draft.yaml`, **review** warnings and `# Alternate structures`, edit, then `sig-brute draft.yaml` | Pipe decode stdout straight into search (`decode \| sig-brute -`) |
+| One config per structural hypothesis you take seriously | Expect one search to try every commented alternate automatically |
+| `sig-brute --find-first` when you want one answer quickly | Run every alternate config blindly if lookup or the first run already matched |
+| Separate YAML files for winner vs plausible `# Alternate structures` | Merge two different arg counts into one `args` block (unsupported) |
+
+#### Search flags
+
+| Situation | Prefer |
+| --------- | ------ |
+| Selector may be on 4byte / Sourcify | Default search (lookup preflight) |
+| Offline or reproducible CI | `--skip-lookup` |
+| Need one signature fast | `--find-first` |
+| Collect every matching signature | `find_first: false` in YAML, no `--find-first` |
 
 ## Config format
 
@@ -406,8 +483,8 @@ The two examples below use signatures sourced from
 [4byte.directory](https://www.4byte.directory/) to show what a real brute-force
 config looks like once you know the selector but not the exact types.
 
-| Example                                                           | Recovered signature                                                             | Selector     |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------ |
+| Example                                                                  | Recovered signature                                                             | Selector     |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ------------ |
 | `src/main/resources/examples/config/superfluid_bulk_add_recipients.yaml` | `bulkAddRecipients(bytes32[],address[],(string,string,string,string,string)[])` | `0xd727784a` |
 | `src/main/resources/examples/config/superfluid_gda_initialize.yaml`      | `initialize(address×7,(uint32,uint32,uint32),(string×5),address,address[])`     | `0x73a4859c` |
 
@@ -426,39 +503,32 @@ tuples** (see `SearchEngineComplexSignatureTest`).
 
 ```text
 src/main/java/me/tibetty/sigbrute/
-├── Main.java                    # entry point; dispatches search vs decode subcommands
+├── Main.java                    # search + decode dispatch; 4byte preflight on search
+├── lookup/                      # Sourcify + 4byte.directory HTTP lookup (CLI)
 ├── decode/
-│   ├── CalldataInput.java       # parses Etherscan dump / raw hex into selector + body
-│   ├── AbiDecoder.java          # recursive head/tail decoder (heuristic + skeleton-guided)
-│   ├── DecodedArg.java          # decoded-arg tree (Leaf / PrimArray / Tuple)
-│   ├── DecodeMain.java          # entry point for the `decode` subcommand
-│   ├── infer/
-│   │   ├── SlotMeta.java            # pre-computed analysis of a single 32-byte ABI head slot
-│   │   ├── SlotInferrer.java        # @FunctionalInterface — strategy for one slot shape
-│   │   ├── ZeroSlotInferrer.java    # all-zero slot → broad candidate list
-│   │   ├── ValueOneInferrer.java    # value == 1 → uint*/int*/ufixed*/fixed*/bool
-│   │   ├── LeftAlignedInferrer.java # byte-0 non-zero → bytesN / negative-intN family
-│   │   ├── AddressInferrer.java     # firstNonZero == 12 → address / uint160+
-│   │   ├── RightAlignedUintInferrer.java  # remaining right-aligned slots → uintFloor / bytes32
-│   │   └── TypeInferrer.java        # coordinator: builds SlotMeta, merges INFERRERS results
-│   └── emit/
-│       ├── PrototypeRenderer.java   # decoded tree → one-line Solidity prototype (shown in YAML header)
-│       └── ConfigEmitter.java       # decoded tree → sig-brute YAML
-├── expander/TypeExpander.java   # wildcard → concrete ABI type expansion
-├── model/
-│   ├── ArgSpec.java             # arg-spec interface
-│   ├── LeafArgSpec.java         # candidates-based arg
-│   ├── TupleArgSpec.java        # tuple arg (recursive)
-│   └── SearchConfig.java        # parsed configuration record
-├── parser/YamlConfigParser.java # YAML → SearchConfig
-├── search/
-│   ├── SearchEngine.java        # ForkJoinPool parallel search
-│   └── SearchException.java
-└── util/
-    ├── CartesianProduct.java    # lazy combinatorial stream
-    ├── HexUtil.java             # hex string ↔ byte[]
-    └── Keccak256Util.java       # inline Keccak-256 (no external crypto dep)
+│   ├── AbiDecoder.java          # decodeArgs / decodeResult(body, hint [, strategy])
+│   ├── DecodeResult.java        # args + warnings + strategy
+│   ├── CalldataInput.java       # Etherscan dump / raw hex → selector + body + skeleton
+│   ├── DecodeMain.java          # decode subcommand (--strategy, --validate)
+│   ├── abi/                     # AbiCodec, AbiTypeSyntax, array suffix helpers
+│   ├── layout/                  # OffsetTable, DynamicHeadSlots (shared layout)
+│   ├── skeleton/                # skeleton-guided top-level decode
+│   ├── strategy/
+│   │   ├── DecodeStrategy.java  # GREEDY | HEURISTIC_SEARCH
+│   │   ├── DecodeContext.java   # explicit body/dynamic/infer hooks + warnings
+│   │   └── body/                # GreedyBodyDecoder, SearchBodyDecoder
+│   ├── infer/                   # TypeInferrer, GeneralizedTypeInferrer, …
+│   └── emit/                    # ConfigEmitter, PrototypeRenderer, DecodeConfigValidator
+├── expander/                    # TypeExpander, TypeRanker
+├── model/                       # SearchConfig, ArgSpec hierarchy
+├── parser/YamlConfigParser.java
+├── search/SearchEngine.java
+└── util/                        # Keccak256Util, CartesianStream, HexUtil
 ```
+
+See [`src/main/java/me/tibetty/sigbrute/decode/ARCHITECTURE.md`](src/main/java/me/tibetty/sigbrute/decode/ARCHITECTURE.md)
+for the decode package map. Tests under `src/test/java/me/tibetty/sigbrute/decode/` mirror
+the same tree (`abi/`, `skeleton/`, `strategy/`, `infer/`, `emit/`).
 
 ## Dependencies
 

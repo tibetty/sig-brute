@@ -1,0 +1,4 @@
+# Generated evaluation corpora — local only, do not commit
+tuple-calldata-corpus/
+__pycache__/
+*.pyc

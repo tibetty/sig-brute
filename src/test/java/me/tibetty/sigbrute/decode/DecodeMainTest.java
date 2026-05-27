@@ -35,6 +35,19 @@ class DecodeMainTest {
     // ── success paths ─────────────────────────────────────────────────────────
 
     @Test
+    void ignoreSkeleton_skipsFunctionHeaderHint() throws IOException {
+        var path = Path.of("src/main/resources/examples/calldata/dag_swap_by_order_id.calldata")
+            .toAbsolutePath().toString();
+        ByteArrayOutputStream withSkeleton = captureOut();
+        ByteArrayOutputStream withoutSkeleton = captureOut();
+        assertEquals(0, DecodeMain.decode(new String[]{path}, ps(withSkeleton), DEV_NULL));
+        assertEquals(0,
+            DecodeMain.decode(new String[]{"--ignore-skeleton", path}, ps(withoutSkeleton),
+                DEV_NULL));
+        assertNotEquals(str(withSkeleton), str(withoutSkeleton));
+    }
+
+    @Test
     void decodeFromFile_writesYamlToOut() throws IOException {
         var path = Path.of("src/main/resources/examples/calldata/dag_swap_by_order_id.calldata")
             .toAbsolutePath().toString();

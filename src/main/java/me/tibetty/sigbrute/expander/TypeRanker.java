@@ -65,48 +65,48 @@ public final class TypeRanker {
             // ── Group A: > 1 % ───────────────────────────────────────────────
             "uint256", // rank 1 41.5623 %
             "address", // rank 2 30.0914 %
-            "string", // rank 3 8.4458 %
+            "string",  // rank 3 8.4458 %
             "bytes32", // rank 4 4.1953 %
-            "bool", // rank 5 3.5895 %
-            "uint8", // rank 6 3.2538 %
-            "bytes", // rank 7 2.6759 %
+            "bool",    // rank 5 3.5895 %
+            "uint8",   // rank 6 3.2538 %
+            "bytes",   // rank 7 2.6759 %
 
             // ── Group B: 0.1 %–1 % ──────────────────────────────────────────
-            "uint16", // rank 8 1.4117 %
-            "uint32", // rank 9 1.2269 %
-            "uint64", // rank 10 0.8162 %
+            "uint16",  // rank 8 1.4117 %
+            "uint32",  // rank 9 1.2269 %
+            "uint64",  // rank 10 0.8162 %
             "uint128", // rank 12 0.4615 % (rank 11 = bare "uint", normalised → uint256)
-            "int256", // rank 13 0.3790 %
-            "uint24", // rank 14 0.2231 %
-            "uint96", // rank 15 0.2106 %
+            "int256",  // rank 13 0.3790 %
+            "uint24",  // rank 14 0.2231 %
+            "uint96",  // rank 15 0.2106 %
 
             // ── Group C: 0.01 %–0.1 % ───────────────────────────────────────
-            "bytes4", // rank 16 0.1203 %
-            "int24", // rank 17 0.1026 %
-            "int128", // rank 18 0.0644 %
-            "uint48", // rank 19 0.0642 %
-            "int32", // rank 20 0.0580 %
-            "uint40", // rank 21 0.0552 %
+            "bytes4",  // rank 16 0.1203 %
+            "int24",   // rank 17 0.1026 %
+            "int128",  // rank 18 0.0644 %
+            "uint48",  // rank 19 0.0642 %
+            "int32",   // rank 20 0.0580 %
+            "uint40",  // rank 21 0.0552 %
             "bytes16", // rank 22 0.0527 %
             "uint160", // rank 23 0.0464 %
-            "uint80", // rank 24 0.0343 %
-            "int8", // rank 25 0.0304 %
-            "int64", // rank 26 0.0297 %
+            "uint80",  // rank 24 0.0343 %
+            "int8",    // rank 25 0.0304 %
+            "int64",   // rank 26 0.0297 %
             "uint112", // rank 27 0.0254 %
-            "int16", // rank 28 0.0226 %
-            "bytes8", // rank 29 0.0219 %
-            "bytes1", // rank 30 0.0163 %
-            "bytes6", // rank 31 0.0152 %
+            "int16",   // rank 28 0.0226 %
+            "bytes8",  // rank 29 0.0219 %
+            "bytes1",  // rank 30 0.0163 %
+            "bytes6",  // rank 31 0.0152 %
             "uint192", // rank 32 0.0146 %
             "bytes12", // rank 33 0.0137 %
             "bytes20", // rank 34 0.0135 %
             "uint120", // rank 35 0.0131 %
-            "int96", // rank 37 0.0118 % (rank 36 = bare "int", normalised → int256)
-            "bytes3", // rank 38 0.0104 %
-            "uint72", // rank 39 0.0102 %
-            "uint88", // rank 40 0.0102 %
-            "bytes2", // rank 41 0.0097 %
-            "uint56", // rank 42 0.0086 %
+            "int96",   // rank 37 0.0118 % (rank 36 = bare "int", normalised → int256)
+            "bytes3",  // rank 38 0.0104 %
+            "uint72",  // rank 39 0.0102 %
+            "uint88",  // rank 40 0.0102 %
+            "bytes2",  // rank 41 0.0097 %
+            "uint56",  // rank 42 0.0086 %
 
             // ── Group D: 0.001 %–0.01 % ─────────────────────────────────────
             "uint240", // rank 43 0.0077 %
@@ -114,7 +114,7 @@ public final class TypeRanker {
             "uint104", // rank 45 0.0065 %
             "uint248", // rank 46 0.0060 %
             "uint216", // rank 47 0.0055 %
-            "bytes5", // rank 48 0.0042 %
+            "bytes5",  // rank 48 0.0042 %
             "bytes24", // rank 49 0.0039 %
             "bytes10", // rank 50 0.0035 %
             "uint168", // rank 51 0.0033 %
@@ -122,7 +122,7 @@ public final class TypeRanker {
             "uint176", // rank 54 0.0025 %
             "uint232", // rank 55 0.0022 %
             "bytes15", // rank 56 0.0016 %
-            "bytes9", // rank 57 0.0014 %
+            "bytes9",  // rank 57 0.0014 %
 
             // ── Group E: < 0.001 % (corpus tail) ────────────────────────────
             "int192", "bytes22", "uint144", "bytes11", "uint152", "bytes7", "int56", "bytes14",
