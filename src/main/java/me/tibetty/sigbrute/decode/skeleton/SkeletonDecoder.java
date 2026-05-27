@@ -101,7 +101,6 @@ public final class SkeletonDecoder {
     }
 
     static DecodedArg decodeSkeletonArg(SkeletonArgContext argContext, int argIndex) {
-        var type = argContext.hint().get(argIndex);
         var decodeAs = ShallowSkeletonHints.bodyDecodeType(argContext.hint(),
             argContext.inlineHint(), argIndex);
         var take = SkeletonLayout.slotsForHint(decodeAs, argContext.minSlots()[argIndex],

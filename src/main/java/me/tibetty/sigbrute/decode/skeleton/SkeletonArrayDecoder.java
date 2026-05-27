@@ -16,6 +16,8 @@ public final class SkeletonArrayDecoder {
     private static final String BYTES = AbiTypeSyntax.BYTES;
     private static final String STRING = AbiTypeSyntax.STRING;
     private static final String ELEMENT_COUNT_NOTE_SUFFIX = " element(s)";
+    private static final String OPAQUE_TUPLE_ARRAY_ELEMENT0_NOTE =
+        " elements; using element[0] (opaque tuple[])";
 
     private SkeletonArrayDecoder() {
     }
@@ -303,44 +305,68 @@ public final class SkeletonArrayDecoder {
         }
 
         var remaining = tail.length - 32;
-
-        var elemOffsets = OffsetTable.parseMonotonic(tail, count, remaining);
-        if (elemOffsets.length == count) {
-            DecodedArg shape = null;
-            for (var i = 0; i < count; i++) {
-                var from = 32 + elemOffsets[i];
-                var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
-                var elem = GreedyBodyDecoder.decodeTupleElementBody(ctx,
-                    AbiCodec.slice(tail, from, to - from));
-                if (shape == null) {
-                    shape = elem;
-                }
-            }
-            return new DecodedArg.Tuple("",
-                shape != null ? tupleFields(shape) : List.of(),
-                count + " elements; using element[0] (opaque tuple[])");
+        var decoded = tryDecodeOpaqueTupleArrayFromOffsets(ctx, tail, count, remaining);
+        if (decoded == null) {
+            decoded = tryDecodeOpaqueStaticTupleArray(ctx, tail, count, remaining);
         }
-
-        if (remaining > 0 && remaining % count == 0) {
-            var elemBytes = remaining / count;
-            if (elemBytes >= 32 && elemBytes % 32 == 0) {
-                var slots = elemBytes / 32;
-                var first = AbiCodec.slice(tail, 32, elemBytes);
-                var inner = GreedyBodyDecoder.decodeTupleElementBody(ctx, first);
-                return new DecodedArg.Tuple("", tupleFields(inner),
-                    count + " elements × " + slots + " slot(s) (static opaque tuple[])");
-            }
+        if (decoded == null) {
+            decoded = tryDecodeOpaqueConcatenatedTupleArray(ctx, tail, count, remaining);
         }
-
-        if (remaining > 0) {
-            var concatenated = GreedyBodyDecoder.tryDecodeConcatenatedArray(ctx, tail, count, remaining);
-            if (concatenated instanceof DecodedArg.Tuple t && !t.fields().isEmpty()) {
-                return attachOpaqueTupleArrayShape(t, count);
-            }
+        if (decoded != null) {
+            return decoded;
         }
 
         ctx.warn("opaque tuple[] fell back to offset-table tuple[] decode");
         return decodeDynamicTupleArray(ctx, tail);
+    }
+
+    private static DecodedArg tryDecodeOpaqueTupleArrayFromOffsets(DecodeContext ctx, byte[] tail,
+        int count, int remaining) {
+        var elemOffsets = OffsetTable.parseMonotonic(tail, count, remaining);
+        if (elemOffsets.length != count) {
+            return null;
+        }
+        DecodedArg shape = null;
+        for (var i = 0; i < count; i++) {
+            var from = 32 + elemOffsets[i];
+            var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
+            var elem = GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                AbiCodec.slice(tail, from, to - from));
+            if (shape == null) {
+                shape = elem;
+            }
+        }
+        return new DecodedArg.Tuple("",
+            shape != null ? tupleFields(shape) : List.of(),
+            opaqueTupleArrayElement0Note(count));
+        }
+
+    private static DecodedArg tryDecodeOpaqueStaticTupleArray(DecodeContext ctx, byte[] tail,
+        int count, int remaining) {
+        if (remaining <= 0 || remaining % count != 0) {
+            return null;
+        }
+        var elemBytes = remaining / count;
+        if (elemBytes < 32 || elemBytes % 32 != 0) {
+            return null;
+        }
+        var slots = elemBytes / 32;
+        var first = AbiCodec.slice(tail, 32, elemBytes);
+        var inner = GreedyBodyDecoder.decodeTupleElementBody(ctx, first);
+        return new DecodedArg.Tuple("", tupleFields(inner),
+            count + " elements × " + slots + " slot(s) (static opaque tuple[])");
+    }
+
+    private static DecodedArg tryDecodeOpaqueConcatenatedTupleArray(DecodeContext ctx, byte[] tail,
+        int count, int remaining) {
+        if (remaining <= 0) {
+            return null;
+        }
+        var concatenated = GreedyBodyDecoder.tryDecodeConcatenatedArray(ctx, tail, count, remaining);
+        if (concatenated instanceof DecodedArg.Tuple t && !t.fields().isEmpty()) {
+            return attachOpaqueTupleArrayShape(t, count);
+        }
+        return null;
     }
 
     private static List<DecodedArg> tupleFields(DecodedArg decoded) {
@@ -368,8 +394,11 @@ public final class SkeletonArrayDecoder {
     }
 
     private static DecodedArg attachOpaqueTupleArrayShape(DecodedArg.Tuple elementShape, int count) {
-        return new DecodedArg.Tuple("", elementShape.fields(),
-            count + " elements; using element[0] (opaque tuple[])");
+        return new DecodedArg.Tuple("", elementShape.fields(), opaqueTupleArrayElement0Note(count));
+    }
+
+    private static String opaqueTupleArrayElement0Note(int count) {
+        return count + OPAQUE_TUPLE_ARRAY_ELEMENT0_NOTE;
     }
 
     private static DecodedArg decodeDynamicTupleArray(DecodeContext ctx, byte[] tail) {
@@ -397,7 +426,7 @@ public final class SkeletonArrayDecoder {
                 }
             }
             return new DecodedArg.Tuple("", shape != null ? shape : List.of(),
-                count + " elements; using element[0] (opaque tuple[])");
+                opaqueTupleArrayElement0Note(count));
         }
 
         var offsets = readTupleArrayOffsets(tail, count);
