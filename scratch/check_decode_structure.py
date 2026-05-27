@@ -7,11 +7,16 @@ Reports greedy and heuristic_search match counts (see TupleCorpusLocalEvaluation
 Modes:
   decoded  — compare AbiDecoder arg trees (recommended); runs Gradle test
   skeleton — compare YAML prototype shape with skeleton decode (both strategies)
+  shallow  — shallow skeleton (opaque tuple at top level); runs Gradle test
+  full     — full inline skeleton from Function line; runs Gradle test
+  benchmark — run decoded + shallow + full and write structure-check-benchmark.json
   prototype — compare recovered prototype comment line from YAML (legacy; often flat)
 
 Usage:
   python3 scratch/check_decode_structure.py
   python3 scratch/check_decode_structure.py --mode skeleton
+  python3 scratch/check_decode_structure.py --mode shallow
+  python3 scratch/check_decode_structure.py --mode benchmark
   python3 scratch/check_decode_structure.py --mode prototype
 """
 
@@ -103,6 +108,110 @@ def _prepare_gradle_test(root: Path) -> None:
             dot.unlink(missing_ok=True)
 
 
+def _load_report(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _print_mode_summary(label: str, data: dict) -> None:
+    total = data.get("total", 0)
+    greedy = data.get("greedy_match", data.get("match", 0))
+    search = data.get("heuristic_search_match", greedy)
+    pct = (100.0 * greedy / total) if total else 0.0
+    print(
+        f"  {label}: greedy {greedy}/{total} ({pct:.1f}%), "
+        f"heuristic_search {search}/{total}, errors {data.get('error', 0)}"
+    )
+
+
+def _run_gradle_corpus_test(root: Path, class_name: str) -> int:
+    _prepare_gradle_test(root)
+    return subprocess.run(
+        [str(root / "gradlew"), "-q", "test", "--tests", class_name],
+        cwd=root,
+        check=False,
+    ).returncode
+
+
+def run_shallow_mode(root: Path, corpus: Path) -> int:
+    if _missing_manifest_files(corpus):
+        print("Corpus manifest out of sync — run reindex_corpus.py", file=sys.stderr)
+        return 1
+    code = _run_gradle_corpus_test(
+        root, "me.tibetty.sigbrute.decode.strategy.TupleCorpusShallowSkeletonEvaluationTest"
+    )
+    report = corpus / "structure-check-shallow.json"
+    if report.exists():
+        _print_mode_summary("shallow skeleton", _load_report(report))
+        print(f"Report: {report}")
+    return code
+
+
+def run_full_skeleton_mode(root: Path, corpus: Path) -> int:
+    if _missing_manifest_files(corpus):
+        print("Corpus manifest out of sync — run reindex_corpus.py", file=sys.stderr)
+        return 1
+    code = _run_gradle_corpus_test(
+        root, "me.tibetty.sigbrute.decode.strategy.TupleCorpusFullSkeletonEvaluationTest"
+    )
+    report = corpus / "structure-check-full-skeleton.json"
+    if report.exists():
+        _print_mode_summary("full skeleton", _load_report(report))
+        print(f"Report: {report}")
+    return code
+
+
+def run_benchmark_mode(root: Path, corpus: Path) -> int:
+    if _missing_manifest_files(corpus):
+        print("Corpus manifest out of sync — run reindex_corpus.py", file=sys.stderr)
+        return 1
+
+    t0 = time.perf_counter()
+    modes = [
+        (
+            "no_skeleton",
+            "me.tibetty.sigbrute.decode.strategy.TupleCorpusLocalEvaluationTest",
+            corpus / "structure-check-decoded.json",
+        ),
+        (
+            "shallow_skeleton",
+            "me.tibetty.sigbrute.decode.strategy.TupleCorpusShallowSkeletonEvaluationTest",
+            corpus / "structure-check-shallow.json",
+        ),
+        (
+            "full_skeleton",
+            "me.tibetty.sigbrute.decode.strategy.TupleCorpusFullSkeletonEvaluationTest",
+            corpus / "structure-check-full-skeleton.json",
+        ),
+    ]
+    results: dict[str, dict] = {}
+    exit_code = 0
+    print("Decode structure benchmark (greedy match rate; both strategies tracked in JSON):")
+    for label, test_class, report_path in modes:
+        step_start = time.perf_counter()
+        code = _run_gradle_corpus_test(root, test_class)
+        if code != 0:
+            exit_code = code
+        data = _load_report(report_path)
+        data["elapsed_sec"] = round(time.perf_counter() - step_start, 3)
+        total = data.get("total", 0)
+        greedy = data.get("greedy_match", 0)
+        data["greedy_pct"] = round(100.0 * greedy / total, 2) if total else 0.0
+        results[label] = data
+        _print_mode_summary(label, data)
+
+    bench = {
+        "total_fixtures": results.get("no_skeleton", {}).get("total", 0),
+        "elapsed_sec": round(time.perf_counter() - t0, 3),
+        "modes": results,
+    }
+    bench_path = corpus / "structure-check-benchmark.json"
+    bench_path.write_text(json.dumps(bench, indent=2) + "\n", encoding="utf-8")
+    print(f"Benchmark report: {bench_path} ({bench['elapsed_sec']}s total)")
+    return exit_code
+
+
 def run_decoded_mode(root: Path, corpus: Path) -> int:
     missing = _missing_manifest_files(corpus)
     if missing:
@@ -114,31 +223,17 @@ def run_decoded_mode(root: Path, corpus: Path) -> int:
         )
         return 1
 
-    _prepare_gradle_test(root)
-    proc = subprocess.run(
-        [
-            str(root / "gradlew"),
-            "-q",
-            "test",
-            "--tests",
-            "me.tibetty.sigbrute.decode.strategy.TupleCorpusLocalEvaluationTest",
-        ],
-        cwd=root,
-        check=False,
+    code = _run_gradle_corpus_test(
+        root, "me.tibetty.sigbrute.decode.strategy.TupleCorpusLocalEvaluationTest"
     )
     report = corpus / "structure-check-decoded.json"
     if report.exists():
-        data = json.loads(report.read_text(encoding="utf-8"))
-        total = data.get("total", 0)
-        greedy = data.get("greedy_match", data.get("match", 0))
-        search = data.get("heuristic_search_match", greedy)
+        data = _load_report(report)
+        _print_mode_summary("no skeleton", data)
         print(
-            f"Decoded structure check: greedy {greedy}/{total}, "
-            f"heuristic_search {search}/{total}, "
-            f"{data.get('mismatch', 0)} mismatch, {data.get('error', 0)} error"
+            f"  mismatches: {data.get('mismatch', 0)}, report: {report}"
         )
-        print(f"Report: {report}")
-    return proc.returncode
+    return code
 
 
 def run_prototype_mode(root: Path, corpus: Path) -> int:
@@ -284,9 +379,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--mode",
-        choices=("decoded", "skeleton", "prototype"),
+        choices=("decoded", "skeleton", "shallow", "full", "benchmark", "prototype"),
         default="decoded",
-        help="decoded: no-skeleton tree check; skeleton: strategy compare; prototype: YAML comment",
+        help="decoded: no skeleton; shallow/full: skeleton depth; benchmark: all three",
     )
     ap.add_argument("--corpus", type=Path, default=Path("scratch/tuple-calldata-corpus"))
     args = ap.parse_args()
@@ -301,6 +396,12 @@ def main() -> int:
         return run_decoded_mode(root, corpus)
     if args.mode == "skeleton":
         return run_skeleton_mode(root, corpus)
+    if args.mode == "shallow":
+        return run_shallow_mode(root, corpus)
+    if args.mode == "full":
+        return run_full_skeleton_mode(root, corpus)
+    if args.mode == "benchmark":
+        return run_benchmark_mode(root, corpus)
     return run_prototype_mode(root, corpus)
 
 

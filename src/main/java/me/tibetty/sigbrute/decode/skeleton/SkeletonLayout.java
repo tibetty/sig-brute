@@ -131,7 +131,7 @@ public final class SkeletonLayout {
         for (var i = 0; i < hint.size(); i++) {
             var t = hint.get(i);
             if (SkeletonTypes.isTupleHint(t)) {
-                var resolution = resolveOneTupleSlot(body, hint, head, slack, i, cursor);
+                var resolution = resolveOneTupleSlot(body, hint, demand, head, slack, i, cursor);
                 tupleSlots[i] = resolution.slots();
                 cursor += resolution.cursorAdvance();
                 slack -= resolution.slackConsumed();
@@ -143,7 +143,7 @@ public final class SkeletonLayout {
         return tupleSlots;
     }
 
-    static TupleSlotResolution resolveOneTupleSlot(byte[] body, List<String> hint,
+    static TupleSlotResolution resolveOneTupleSlot(byte[] body, List<String> hint, SlotDemand demand,
         HeadSection head, int slack, int index, int cursor) {
         var type = hint.get(index);
         var staticInlineSlots = AbiTypeSyntax.staticInlineTupleHeadSlots(type);
@@ -151,14 +151,47 @@ public final class SkeletonLayout {
             return new TupleSlotResolution(staticInlineSlots, staticInlineSlots, 0);
         }
 
-        var slot = AbiCodec.slice(body, Math.min(cursor, head.totalSlots() - 1) * 32, 32);
-        var dynamic = AbiCodec.isPlausibleOffset(AbiCodec.uintOf(slot), body.length, head.headSize());
+        if (cursor >= head.totalSlots()) {
+            return new TupleSlotResolution(1, 1, 0);
+        }
+
+        var dynamic = AbiCodec.looksLikeOffsetAt(body, cursor, body.length, head.headSize());
         if (dynamic) {
             return new TupleSlotResolution(1, 1, 0);
         }
 
+        if (SkeletonTypes.TUPLE.equals(type)) {
+            var reserved = reservedHeadSlotsAfter(hint, demand, index);
+            var maxTake = Math.max(1, head.totalSlots() - cursor - reserved);
+            var take = Math.min(countStaticHeadSlotsUntilOffset(body, head, cursor), maxTake);
+            return new TupleSlotResolution(take, take, 0);
+        }
+
         var take = countTuplesAfter(hint, index) == 0 ? slack + 1 : 1;
         return new TupleSlotResolution(take, take, take - 1);
+    }
+
+    /**
+     * Consecutive head slots that belong to one static opaque {@code tuple} (stop at the first
+     * plausible dynamic tail offset).
+     */
+    static int reservedHeadSlotsAfter(List<String> hint, SlotDemand demand, int fromIndex) {
+        var reserved = 0;
+        for (var j = fromIndex + 1; j < hint.size(); j++) {
+            reserved += demand.minSlots()[j];
+        }
+        return reserved;
+    }
+
+    static int countStaticHeadSlotsUntilOffset(byte[] body, HeadSection head, int cursor) {
+        var take = 1;
+        for (var slot = cursor + 1; slot < head.totalSlots(); slot++) {
+            if (AbiCodec.looksLikeOffsetAt(body, slot, body.length, head.headSize())) {
+                break;
+            }
+            take++;
+        }
+        return take;
     }
 
     static int countTuplesAfter(List<String> hint, int fromIndex) {

@@ -7,8 +7,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import me.tibetty.sigbrute.decode.ShallowSkeletonHints;
 import me.tibetty.sigbrute.decode.infer.TypeInferrer;
 import me.tibetty.sigbrute.decode.strategy.DecodeContext;
+import me.tibetty.sigbrute.decode.strategy.body.GreedyBodyDecoder;
 
 /**
  * Skeleton-guided top-level decode using Etherscan / 4byte type hints. Orchestrates
@@ -21,6 +23,7 @@ public final class SkeletonDecoder {
         DecodeContext ctx,
         byte[] body,
         List<String> hint,
+        List<String> inlineHint,
         int[] minSlots,
         int[] tupleSlots,
         SkeletonLayout.Plan layout,
@@ -37,6 +40,7 @@ public final class SkeletonDecoder {
             return Objects.equals(ctx, other.ctx)
                 && Arrays.equals(body, other.body)
                 && Objects.equals(hint, other.hint)
+                && Objects.equals(inlineHint, other.inlineHint)
                 && Arrays.equals(minSlots, other.minSlots)
                 && Arrays.equals(tupleSlots, other.tupleSlots)
                 && Objects.equals(layout, other.layout)
@@ -45,7 +49,7 @@ public final class SkeletonDecoder {
 
         @Override
         public int hashCode() {
-            var result = Objects.hash(ctx, hint, layout, head);
+            var result = Objects.hash(ctx, hint, inlineHint, layout, head);
             result = 31 * result + Arrays.hashCode(body);
             result = 31 * result + Arrays.hashCode(minSlots);
             result = 31 * result + Arrays.hashCode(tupleSlots);
@@ -57,6 +61,7 @@ public final class SkeletonDecoder {
             return "SkeletonArgContext[ctx=" + ctx
                 + ", body=" + Arrays.toString(body)
                 + ", hint=" + hint
+                + ", inlineHint=" + inlineHint
                 + ", minSlots=" + Arrays.toString(minSlots)
                 + ", tupleSlots=" + Arrays.toString(tupleSlots)
                 + ", layout=" + layout
@@ -69,15 +74,21 @@ public final class SkeletonDecoder {
     }
 
     public static List<DecodedArg> decode(DecodeContext ctx, byte[] body, List<String> hint) {
-        var head = SkeletonLayout.HeadSection.of(body);
-        var demand = SkeletonLayout.computeSlotDemand(hint);
-        SkeletonLayout.validateSlotDemand(hint, demand, head.totalSlots());
+        return decode(ctx, body, hint, List.of());
+    }
 
-        var tupleSlots = SkeletonLayout.resolveTupleSlots(body, hint, demand, head);
-        SkeletonLayout.absorbRemainingSlack(body, hint, demand.minSlots(), tupleSlots, head);
-        var layout = SkeletonLayout.build(body, hint, demand.minSlots(), tupleSlots, head);
-        var argContext = new SkeletonArgContext(ctx, body, hint, demand.minSlots(), tupleSlots,
-            layout, head);
+    public static List<DecodedArg> decode(DecodeContext ctx, byte[] body, List<String> hint,
+        List<String> inlineHint) {
+        var layoutHint = ShallowSkeletonHints.layoutHints(hint, inlineHint);
+        var head = SkeletonLayout.HeadSection.of(body);
+        var demand = SkeletonLayout.computeSlotDemand(layoutHint);
+        SkeletonLayout.validateSlotDemand(layoutHint, demand, head.totalSlots());
+
+        var tupleSlots = SkeletonLayout.resolveTupleSlots(body, layoutHint, demand, head);
+        SkeletonLayout.absorbRemainingSlack(body, layoutHint, demand.minSlots(), tupleSlots, head);
+        var layout = SkeletonLayout.build(body, layoutHint, demand.minSlots(), tupleSlots, head);
+        var argContext = new SkeletonArgContext(ctx, body, hint, inlineHint, demand.minSlots(),
+            tupleSlots, layout, head);
         return decodeSkeletonArgs(argContext);
     }
 
@@ -91,19 +102,21 @@ public final class SkeletonDecoder {
 
     static DecodedArg decodeSkeletonArg(SkeletonArgContext argContext, int argIndex) {
         var type = argContext.hint().get(argIndex);
-        var take = SkeletonLayout.slotsForHint(type, argContext.minSlots()[argIndex],
+        var decodeAs = ShallowSkeletonHints.bodyDecodeType(argContext.hint(),
+            argContext.inlineHint(), argIndex);
+        var take = SkeletonLayout.slotsForHint(decodeAs, argContext.minSlots()[argIndex],
             argContext.tupleSlots()[argIndex]);
         var slotStart = argContext.layout().argHeadSlot()[argIndex];
 
-        return switch (SkeletonTypes.kind(type)) {
+        return switch (SkeletonTypes.kind(decodeAs)) {
             case DYNAMIC_SCALAR, DYNAMIC_PRIM_ARRAY, INLINE_TUPLE_ARRAY -> decodeSkeletonDynamicArg(
-                argContext.ctx(), argContext.body(), type, slotStart, argIndex,
+                argContext.ctx(), argContext.body(), decodeAs, slotStart, argIndex,
                 argContext.layout().dynOffsets(), argContext.head().headSize());
             case OPAQUE_TUPLE -> decodeSkeletonTupleArg(argContext.ctx(), argContext.body(), take,
                 slotStart, argIndex, argContext.layout().dynOffsets(), argContext.head());
-            case STATIC -> SkeletonTypes.isInlineTuple(type)
-                ? decodeInlineTupleSkeletonArg(argContext, type, take, slotStart, argIndex)
-                : decodeStaticTypedSlots(type, argContext.body(), slotStart);
+            case STATIC -> SkeletonTypes.isInlineTuple(decodeAs)
+                ? decodeInlineTupleSkeletonArg(argContext, decodeAs, take, slotStart, argIndex)
+                : decodeStaticTypedSlots(decodeAs, argContext.body(), slotStart);
         };
     }
 
@@ -127,6 +140,15 @@ public final class SkeletonDecoder {
             var tail = AbiCodec.slice(body, off, next - off);
             return new DecodedArg.Tuple("", ctx.decodeBody(tail),
                 "dynamic tuple at offset " + off);
+        }
+
+        if (take > 1) {
+            var span = AbiCodec.slice(body, slotStart * 32, take * 32);
+            var inner = GreedyBodyDecoder.decodeTupleElementBody(ctx, span);
+            if (inner instanceof DecodedArg.Tuple t && !t.fields().isEmpty()) {
+                return new DecodedArg.Tuple("", t.fields(),
+                    "static opaque tuple, " + t.fields().size() + " field(s) (heuristic span)");
+            }
         }
 
         var fields = new ArrayList<DecodedArg>(take);

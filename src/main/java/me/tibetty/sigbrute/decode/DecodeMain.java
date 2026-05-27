@@ -16,7 +16,7 @@ import me.tibetty.sigbrute.decode.strategy.DecodeStrategy;
  *
  * <p>
  * Usage: {@code sig-brute decode [--strategy greedy|heuristic_search] [--validate]
- * [--ignore-skeleton] [--wide] [input-file]}
+ * [--ignore-skeleton] [--shallow-skeleton] [--wide] [input-file]}
  * — reads from the file if given, otherwise from stdin. Writes the generated YAML to stdout.
  */
 public final class DecodeMain {
@@ -52,16 +52,16 @@ public final class DecodeMain {
      * @return {@code 0} success, {@code 1} parse/decode error, {@code 2} empty input
      */
     public int decode(String[] args) throws IOException {
-        var parsed = parseArgs(args);
         try {
+            var parsed = parseArgs(args);
             var input = readInput(parsed.fileArgs());
             if (input == null) {
                 return 2;
             }
 
-            var hint = parsed.ignoreSkeleton() ? null : input.topLevelTypes();
+            var hint = resolveTopLevelHint(input, parsed);
             var result = AbiDecoder.decodeResult(input.body(), hint, parsed.strategy(),
-                parsed.wideCandidates());
+                parsed.wideCandidates(), resolveInlineTopLevelHint(input, parsed));
             for (var warning : result.warnings()) {
                 err.println("decode warning: " + warning);
             }
@@ -82,15 +82,36 @@ public final class DecodeMain {
         DecodeStrategy strategy,
         boolean validate,
         boolean ignoreSkeleton,
+        boolean shallowSkeleton,
         boolean wideCandidates,
         List<String> fileArgs
     ) {
+    }
+
+    static List<String> resolveTopLevelHint(CalldataInput input, ParsedArgs parsed) {
+        if (parsed.ignoreSkeleton()) {
+            return List.of();
+        }
+        if (parsed.shallowSkeleton()) {
+            return input.withShallowSkeleton().topLevelTypes();
+        }
+        var types = input.topLevelTypes();
+        return types != null ? types : List.of();
+    }
+
+    static List<String> resolveInlineTopLevelHint(CalldataInput input, ParsedArgs parsed) {
+        if (parsed.ignoreSkeleton() || !parsed.shallowSkeleton()) {
+            return List.of();
+        }
+        var types = input.topLevelTypes();
+        return types != null ? types : List.of();
     }
 
     private static ParsedArgs parseArgs(String[] args) {
         var strategy = DecodeStrategy.GREEDY;
         var validate = false;
         var ignoreSkeleton = false;
+        var shallowSkeleton = false;
         var wideCandidates = false;
         var rest = new ArrayList<String>();
         var i = 0;
@@ -105,6 +126,9 @@ public final class DecodeMain {
             } else if ("--ignore-skeleton".equals(arg)) {
                 ignoreSkeleton = true;
                 i++;
+            } else if ("--shallow-skeleton".equals(arg)) {
+                shallowSkeleton = true;
+                i++;
             } else if ("--wide".equals(arg)) {
                 wideCandidates = true;
                 i++;
@@ -113,7 +137,12 @@ public final class DecodeMain {
                 i++;
             }
         }
-        return new ParsedArgs(strategy, validate, ignoreSkeleton, wideCandidates, List.copyOf(rest));
+        if (ignoreSkeleton && shallowSkeleton) {
+            throw new IllegalArgumentException(
+                "decode: --ignore-skeleton and --shallow-skeleton are mutually exclusive");
+        }
+        return new ParsedArgs(strategy, validate, ignoreSkeleton, shallowSkeleton, wideCandidates,
+            List.copyOf(rest));
     }
 
     private CalldataInput readInput(List<String> fileArgs) throws IOException {

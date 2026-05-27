@@ -15,19 +15,16 @@ import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
 /**
- * Full structural evaluation of the local tuple calldata corpus under {@code scratch/}. Skipped in
- * CI when the corpus is absent (gitignored). Writes {@code structure-check-decoded.json} on run.
- *
- * <p>Decodes with {@link CalldataInput#withoutSkeleton()} so the embedded {@code Function:} line
- * does not shortcut through skeleton decode; manifest {@code text_signature} is comparison-only.
+ * Structural evaluation with full skeleton (inline tuple types from {@code Function:}). Writes
+ * {@code structure-check-full-skeleton.json} when the local corpus is present.
  */
-class TupleCorpusLocalEvaluationTest {
+class TupleCorpusFullSkeletonEvaluationTest {
 
     private static final Path CORPUS = Path.of("scratch/tuple-calldata-corpus");
 
     @Test
     @SuppressWarnings("unchecked")
-    void decodedStructureMatchesKnownSignatures() throws Exception {
+    void fullSkeletonStructureMatchesKnownSignatures() throws Exception {
         var manifestPath = CORPUS.resolve("manifest.json");
         assumeTrue(Files.isRegularFile(manifestPath), "local corpus not present — run fetch script");
 
@@ -43,18 +40,18 @@ class TupleCorpusLocalEvaluationTest {
             var knownSig = (String) entry.get("text_signature");
             var label = file.getFileName().toString();
             try {
-                var text = Files.readString(file, StandardCharsets.UTF_8);
-                var input = CalldataInput.parse(text).withoutSkeleton();
+                var input = CalldataInput.parse(Files.readString(file, StandardCharsets.UTF_8));
                 var known = SignatureStructure.parseSignature(knownSig);
 
-                var greedy = AbiDecoder.decodeArgs(input.body(), List.of(), DecodeStrategy.GREEDY);
+                var greedy = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(),
+                    DecodeStrategy.GREEDY);
                 if (known.structureEquals(SignatureStructure.fromDecodedArgs(greedy))) {
                     greedyMatch++;
                 } else {
                     mismatches.add(label + " [greedy] — known: " + knownSig);
                 }
 
-                var search = AbiDecoder.decodeArgs(input.body(), List.of(),
+                var search = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(),
                     DecodeStrategy.HEURISTIC_SEARCH);
                 if (known.structureEquals(SignatureStructure.fromDecodedArgs(search))) {
                     searchMatch++;
@@ -66,10 +63,7 @@ class TupleCorpusLocalEvaluationTest {
             }
         }
 
-        var total = manifest.size();
-        writeReport(greedyMatch, searchMatch, total, mismatches, errors);
-
-        // Decode must not throw; structural mismatches are tracked in the report only.
+        writeReport(greedyMatch, searchMatch, manifest.size(), mismatches, errors);
         if (!errors.isEmpty()) {
             System.err.println("Decode errors:\n" + String.join("\n", errors));
         }
@@ -89,11 +83,12 @@ class TupleCorpusLocalEvaluationTest {
         sb.append("  \"errors\": ").append(jsonStringList(errors)).append("\n");
         sb.append("}\n");
         Files.writeString(
-            CORPUS.resolve("structure-check-decoded.json"),
+            CORPUS.resolve("structure-check-full-skeleton.json"),
             sb.toString(),
             StandardCharsets.UTF_8);
         System.out.printf(
-            "Decoded structure check: greedy %d/%d, heuristic_search %d/%d, %d mismatch, %d error%n",
+            "Full skeleton structure check: greedy %d/%d, heuristic_search %d/%d,"
+                + " %d mismatch, %d error%n",
             greedyMatch, total, searchMatch, total, mismatches.size(), errors.size());
     }
 

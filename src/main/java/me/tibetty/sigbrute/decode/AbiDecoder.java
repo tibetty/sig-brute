@@ -31,11 +31,21 @@ public final class AbiDecoder {
 
     public static DecodeResult decodeResult(byte[] body, List<String> topLevelHint,
         DecodeStrategy strategy, boolean wideCandidates) {
+        return decodeResult(body, topLevelHint, strategy, wideCandidates, List.of());
+    }
+
+    public static DecodeResult decodeResult(byte[] body, List<String> topLevelHint,
+        DecodeStrategy strategy, boolean wideCandidates, List<String> inlineTopLevelHint) {
         if ((body.length & 31) != 0) {
             throw new IllegalArgumentException("body length not a multiple of 32: " + body.length);
         }
 
-        return DecodeStrategy.decode(body, topLevelHint, strategy, wideCandidates);
+        return DecodeStrategy.decode(body, hintOrEmpty(topLevelHint), strategy, wideCandidates,
+            hintOrEmpty(inlineTopLevelHint));
+    }
+
+    private static List<String> hintOrEmpty(List<String> hint) {
+        return hint == null ? List.of() : hint;
     }
 
     /**

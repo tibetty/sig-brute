@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import me.tibetty.sigbrute.decode.layout.OffsetTable;
 import me.tibetty.sigbrute.decode.strategy.DecodeContext;
+import me.tibetty.sigbrute.decode.strategy.body.GreedyBodyDecoder;
 
 /** Skeleton-guided decode of dynamic arrays and dynamic field tails. */
 public final class SkeletonArrayDecoder {
@@ -76,15 +77,19 @@ public final class SkeletonArrayDecoder {
 
         var count = AbiCodec.dynamicArrayCount(tail);
         if (count == 0) {
-            return emptyArray(elemType, dimension);
+            return emptyArray(ctx, tail, elemType, dimension);
         }
 
         return decodeCountedArrayElement(ctx, tail, arrayType, elemType, dimension, count);
     }
 
     private static DecodedArg tryFlatMultiDimDecode(DecodeContext ctx, byte[] tail, String arrayType) {
-        if (AbiTypeView.of(arrayType).dynamicDimensionCount() < 2
-            || !looksLikeDynamicArrayCount(tail)) {
+        var view = AbiTypeView.of(arrayType);
+        if (view.dynamicDimensionCount() < 2 || !looksLikeDynamicArrayCount(tail)) {
+            return null;
+        }
+        // Opaque tuple[][]… needs per-dimension offset tables; single-blob tuple[] decode is wrong.
+        if (SkeletonTypes.TUPLE.equals(view.base())) {
             return null;
         }
         return decodeFlatDynamicArray(ctx, tail, arrayType);
@@ -118,6 +123,10 @@ public final class SkeletonArrayDecoder {
                 SkeletonTypes.inlineFieldTypes(elemType));
             return ArraySuffixComposer.attach(decoded, dimension);
         }
+        if (SkeletonTypes.TUPLE.equals(elemType)) {
+            var decoded = decodeOpaqueTupleArray(ctx, tail, count);
+            return ArraySuffixComposer.attach(decoded, dimension);
+        }
         if (SkeletonTypes.isTupleHint(elemType)) {
             var decoded = decodeDynamicTupleArray(ctx, tail);
             return ArraySuffixComposer.attach(decoded, dimension);
@@ -137,6 +146,13 @@ public final class SkeletonArrayDecoder {
                 SkeletonShape.shapeFieldsFromHints(SkeletonTypes.inlineFieldTypes(elemType)),
                 "inline tuple[] (skeleton shape; bad count word)");
         }
+        if (SkeletonTypes.TUPLE.equals(elemType)) {
+            var heuristic = ctx.decodeBody(AbiCodec.slice(tail, 32, Math.max(0, tail.length - 32)));
+            return new DecodedArg.Tuple(
+                ArraySuffixComposer.mergeSuffix("", dimension),
+                heuristic,
+                "opaque tuple[] (heuristic; bad count word)");
+        }
         var fallback = SkeletonShape.skeletonArrayFallback(arrayType);
         if (fallback instanceof DecodedArg.PrimArray) {
             return fallback;
@@ -144,11 +160,16 @@ public final class SkeletonArrayDecoder {
         return ctx.decodeDynamic(tail);
     }
 
-    private static DecodedArg emptyArray(String elemType, String dimension) {
+    private static DecodedArg emptyArray(DecodeContext ctx, byte[] tail, String elemType,
+        String dimension) {
         if (SkeletonTypes.isInlineTuple(elemType)) {
             return new DecodedArg.Tuple(dimension,
                 SkeletonShape.shapeFieldsFromHints(SkeletonTypes.inlineFieldTypes(elemType)),
                 "empty inline tuple[]");
+        }
+        if (SkeletonTypes.TUPLE.equals(elemType)) {
+            return new DecodedArg.Tuple(dimension, opaqueTupleElementShape(ctx, tail),
+                "empty opaque tuple[]");
         }
         if (SkeletonTypes.isTupleHint(elemType)) {
             return new DecodedArg.Tuple(dimension, List.of(), "empty tuple[]");
@@ -188,6 +209,14 @@ public final class SkeletonArrayDecoder {
         if (SkeletonTypes.isInlineTuple(elemType)) {
             var decoded = decodeDynamicInlineTupleArray(ctx, tail,
                 SkeletonTypes.inlineFieldTypes(elemType));
+            return ArraySuffixComposer.attach(decoded, suffix);
+        }
+        if (SkeletonTypes.TUPLE.equals(elemType)) {
+            if (!looksLikeDynamicArrayCount(tail)) {
+                return null;
+            }
+            var count = AbiCodec.dynamicArrayCount(tail);
+            var decoded = decodeOpaqueTupleArray(ctx, tail, count);
             return ArraySuffixComposer.attach(decoded, suffix);
         }
         if (SkeletonTypes.isTupleHint(elemType)) {
@@ -264,6 +293,85 @@ public final class SkeletonArrayDecoder {
             length + " bytes payload (type fixed by skeleton)");
     }
 
+    /**
+     * Decodes {@code tuple[]} when the skeleton only names {@code tuple} (no inline field types).
+     */
+    static DecodedArg decodeOpaqueTupleArray(DecodeContext ctx, byte[] tail, int count) {
+        if (count == 0) {
+            return new DecodedArg.Tuple("", opaqueTupleElementShape(ctx, tail),
+                "empty opaque tuple[]");
+        }
+
+        var remaining = tail.length - 32;
+
+        var elemOffsets = OffsetTable.parseMonotonic(tail, count, remaining);
+        if (elemOffsets.length == count) {
+            DecodedArg shape = null;
+            for (var i = 0; i < count; i++) {
+                var from = 32 + elemOffsets[i];
+                var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
+                var elem = GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                    AbiCodec.slice(tail, from, to - from));
+                if (shape == null) {
+                    shape = elem;
+                }
+            }
+            return new DecodedArg.Tuple("",
+                shape != null ? tupleFields(shape) : List.of(),
+                count + " elements; using element[0] (opaque tuple[])");
+        }
+
+        if (remaining > 0 && remaining % count == 0) {
+            var elemBytes = remaining / count;
+            if (elemBytes >= 32 && elemBytes % 32 == 0) {
+                var slots = elemBytes / 32;
+                var first = AbiCodec.slice(tail, 32, elemBytes);
+                var inner = GreedyBodyDecoder.decodeTupleElementBody(ctx, first);
+                return new DecodedArg.Tuple("", tupleFields(inner),
+                    count + " elements × " + slots + " slot(s) (static opaque tuple[])");
+            }
+        }
+
+        if (remaining > 0) {
+            var concatenated = GreedyBodyDecoder.tryDecodeConcatenatedArray(ctx, tail, count, remaining);
+            if (concatenated instanceof DecodedArg.Tuple t && !t.fields().isEmpty()) {
+                return attachOpaqueTupleArrayShape(t, count);
+            }
+        }
+
+        ctx.warn("opaque tuple[] fell back to offset-table tuple[] decode");
+        return decodeDynamicTupleArray(ctx, tail);
+    }
+
+    private static List<DecodedArg> tupleFields(DecodedArg decoded) {
+        if (decoded instanceof DecodedArg.Tuple t) {
+            return t.fields();
+        }
+        return List.of(decoded);
+    }
+
+    /**
+     * When count is zero, infer element field shapes from any decodable tail bytes or a single
+     * heuristic element decode (structure comparison needs tuple children, not an empty tuple).
+     */
+    private static List<DecodedArg> opaqueTupleElementShape(DecodeContext ctx, byte[] tail) {
+        if (tail.length > 32) {
+            var probe = GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                AbiCodec.slice(tail, 32, tail.length - 32));
+            if (probe instanceof DecodedArg.Tuple t && !t.fields().isEmpty()) {
+                return t.fields();
+            }
+        }
+        var heuristic = GreedyBodyDecoder.decodeTupleElementBody(ctx,
+            AbiCodec.slice(tail, 0, Math.min(tail.length, 96)));
+        return tupleFields(heuristic);
+    }
+
+    private static DecodedArg attachOpaqueTupleArrayShape(DecodedArg.Tuple elementShape, int count) {
+        return new DecodedArg.Tuple("", elementShape.fields(),
+            count + " elements; using element[0] (opaque tuple[])");
+    }
+
     private static DecodedArg decodeDynamicTupleArray(DecodeContext ctx, byte[] tail) {
         if (!looksLikeDynamicArrayCount(tail)) {
             return new DecodedArg.Tuple("",
@@ -272,7 +380,24 @@ public final class SkeletonArrayDecoder {
         }
         var count = AbiCodec.safeToInt(AbiCodec.uintOf(AbiCodec.slice(tail, 0, 32)), "tuple[] count");
         if (count == 0) {
-            return new DecodedArg.Tuple("", List.of(), "empty tuple[]");
+            return new DecodedArg.Tuple("", opaqueTupleElementShape(ctx, tail), "empty tuple[]");
+        }
+
+        var remaining = tail.length - 32;
+        var elemOffsets = OffsetTable.parseMonotonic(tail, count, remaining);
+        if (elemOffsets.length == count) {
+            List<DecodedArg> shape = null;
+            for (var i = 0; i < count; i++) {
+                var from = 32 + elemOffsets[i];
+                var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
+                var fields = tupleFields(GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                    AbiCodec.slice(tail, from, to - from)));
+                if (shape == null) {
+                    shape = fields;
+                }
+            }
+            return new DecodedArg.Tuple("", shape != null ? shape : List.of(),
+                count + " elements; using element[0] (opaque tuple[])");
         }
 
         var offsets = readTupleArrayOffsets(tail, count);
@@ -297,7 +422,8 @@ public final class SkeletonArrayDecoder {
         for (var i = 0; i < count; i++) {
             var from = 32 + offsets[i];
             var to = (i + 1 < count) ? 32 + offsets[i + 1] : tail.length;
-            perElement.add(ctx.decodeBody(AbiCodec.slice(tail, from, to - from)));
+            perElement.add(tupleFields(GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                AbiCodec.slice(tail, from, to - from))));
         }
         return perElement;
     }

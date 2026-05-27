@@ -51,6 +51,23 @@ class GreedyBodyDecoderNestedArrayTest {
         assertEquals("[][]", ((DecodedArg.PrimArray) tuple.fields().get(4)).arraySuffix());
     }
 
+    @Test
+    void staticTupleArray_twoSlotsPerElement_producesTwoFieldTupleShape() {
+        var body = new byte[32 + 2 * 64];
+        body[31] = 2;
+        for (var i = 0; i < 2; i++) {
+            var base = 32 + i * 64;
+            body[base + 31] = 1;
+            body[base + 63] = (byte) (i + 2);
+        }
+        var decoded = GreedyBodyDecoder.tryDecodeConcatenatedArray(
+            DecodeStrategy.newContext(DecodeStrategy.GREEDY), body, 2, 128);
+        assertInstanceOf(DecodedArg.Tuple.class, decoded);
+        var tuple = (DecodedArg.Tuple) decoded;
+        assertEquals("[]", tuple.arraySuffix());
+        assertEquals(2, tuple.fields().size());
+    }
+
     static boolean localCorpusPresent() {
         return CorpusFixtureLocator.localCorpusPresent();
     }

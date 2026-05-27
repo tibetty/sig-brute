@@ -185,12 +185,37 @@ public final class GreedyBodyDecoder {
             return rowArray;
         }
 
+        for (var headSize : headSizeCandidates(elemSlice)) {
+            var fields = decodeHeadTailTuple(ctx, elemSlice, headSize);
+            if (fields.size() > 1) {
+                return new DecodedArg.Tuple("", fields,
+                    fields.size() + " field(s) (offset-indexed tuple element)");
+            }
+        }
+
         var arrayElement = tryDecodeArrayElementSlice(ctx, elemSlice);
         if (arrayElement != null) {
             return arrayElement;
         }
 
         return decodeTupleElementBody(ctx, elemSlice);
+    }
+
+    private static List<Integer> headSizeCandidates(byte[] body) {
+        var sizes = new LinkedHashSet<Integer>();
+        var headSize = AbiCodec.scanHeadSize(body);
+        if (headSize < 0) {
+            return List.of();
+        }
+        while (headSize > 0 && headSize < body.length) {
+            sizes.add(headSize);
+            var next = AbiCodec.nextHeadSizeFromTailWord(body, headSize);
+            if (next < 0 || next == headSize) {
+                break;
+            }
+            headSize = next;
+        }
+        return new ArrayList<>(sizes);
     }
 
     static DecodedArg tryDecodeArrayElementSlice(DecodeContext ctx, byte[] elemSlice) {
@@ -237,7 +262,15 @@ public final class GreedyBodyDecoder {
         return null;
     }
 
-    static DecodedArg decodeTupleElementBody(DecodeContext ctx, byte[] elemSlice) {
+    public static DecodedArg decodeTupleElementBody(DecodeContext ctx, byte[] elemSlice) {
+        for (var headSize : headSizeCandidates(elemSlice)) {
+            var headTailFields = decodeHeadTailTuple(ctx, elemSlice, headSize);
+            if (headTailFields.size() > 1) {
+                return new DecodedArg.Tuple("", headTailFields,
+                    headTailFields.size() + " field(s) (tuple element, head/tail)");
+            }
+        }
+
         var fields = ctx.decodeBody(elemSlice);
         if (fields.isEmpty()) {
             return new DecodedArg.Tuple("", List.of(), "empty tuple element");
@@ -265,7 +298,8 @@ public final class GreedyBodyDecoder {
         return tryDecodeArrayFromLengthPrefix(ctx, tail, AbiCodec.uintOf(AbiCodec.slice(tail, 0, 32)));
     }
 
-    static DecodedArg tryDecodeConcatenatedArray(DecodeContext ctx, byte[] body, int count, int remaining) {
+    public static DecodedArg tryDecodeConcatenatedArray(DecodeContext ctx, byte[] body, int count,
+        int remaining) {
         if (remaining % count != 0) {
             return null;
         }
@@ -358,6 +392,13 @@ public final class GreedyBodyDecoder {
     static DecodedArg decodeStaticTupleArray(DecodeContext ctx, byte[] body, int count, int slotsPerElem) {
         var width = slotsPerElem * 32;
         var firstElem = AbiCodec.slice(body, 32, width);
+        if (slotsPerElem > 1) {
+            var inner = decodeTupleElementBody(ctx, firstElem);
+            if (inner instanceof DecodedArg.Tuple t && !t.fields().isEmpty()) {
+                return new DecodedArg.Tuple("[]", t.fields(),
+                    count + " elements × " + slotsPerElem + " slot(s) (static tuple[])");
+            }
+        }
         var fields = new ArrayList<DecodedArg>(slotsPerElem);
         for (var j = 0; j < slotsPerElem; j++) {
             var w = AbiCodec.slice(firstElem, j * 32, 32);
@@ -367,4 +408,5 @@ public final class GreedyBodyDecoder {
         return new DecodedArg.Tuple("[]", fields,
             count + " elements × " + slotsPerElem + " field(s) (static tuple[])");
     }
+
 }

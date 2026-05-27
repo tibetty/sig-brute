@@ -155,7 +155,7 @@ class RoundTripTest {
     private static Arguments heuristicCase(String label, String methodName, String sig,
         byte[] body) {
         var selector = Arrays.copyOf(Keccak256Util.hash(sig), 4);
-        var in = new CalldataInput(selector, body, methodName, null);
+        var in = new CalldataInput(selector, body, methodName, null, null);
         return Arguments.of(label, sig, in);
     }
 

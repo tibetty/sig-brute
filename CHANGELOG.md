@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-05-27
+
+### Added
+
+- `decode --shallow-skeleton`: top-level inline tuples abstracted to `tuple` / `tuple[]` for RE-friendly skeleton hints
+- `ShallowSkeletonHints`, `CalldataInput.withShallowSkeleton()`, and `inlineTopLevelTypes` for per-parameter decode from the full `Function:` line
+- Opaque `tuple[]` decode path in `SkeletonArrayDecoder` (offset table, static rows, concatenated fallback)
+- Greedy body: multi-candidate head sizes for offset-indexed tuple elements; improved static opaque tuple head span in `SkeletonLayout`
+- Corpus tests: `TupleCorpusShallowSkeletonEvaluationTest`, `ShallowSkeletonDecodeTest`, `SkeletonLayoutOpaqueTupleTest`; `scratch/check_decode_structure.py` shallow/benchmark modes
+
+### Changed
+
+- `DecodeMain` / `AbiDecoder` accept optional inline top-level types alongside shallow hints; empty lists replace `null` skeleton hints
+- README documents `--shallow-skeleton` and decode/search settings for tuple-heavy signatures
+
 ## [1.1.0] — 2026-05-27
 
 ### Added

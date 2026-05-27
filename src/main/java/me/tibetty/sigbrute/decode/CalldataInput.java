@@ -24,14 +24,27 @@ import me.tibetty.sigbrute.util.HexUtil;
  * the decoder can use them as a skeleton.
  */
 public record CalldataInput(byte[] selector, byte[] body, String methodName,
-    List<String> topLevelTypes) {
+    List<String> topLevelTypes, List<String> inlineTopLevelTypes) {
 
     /**
      * Same selector and body as this input, but without Etherscan / 4byte header hints. Use for
      * corpus verification so decode runs on calldata bytes only (heuristic body + nested decode).
      */
     public CalldataInput withoutSkeleton() {
-        return new CalldataInput(selector, body, null, null);
+        return new CalldataInput(selector, body, null, null, null);
+    }
+
+    /**
+     * Same selector, body, and method name, but top-level types use opaque {@code tuple} /
+     * {@code tuple[]} instead of inline {@code (T,...)} forms from a full 4byte signature.
+     *
+     * <p>
+     * {@link #inlineTopLevelTypes} retains the original inline forms from the {@code Function:}
+     * line for head-slot planning and per-parameter body decode (see {@link ShallowSkeletonHints}).
+     */
+    public CalldataInput withShallowSkeleton() {
+        return new CalldataInput(selector, body, methodName,
+            ShallowSkeletonHints.abstractTopLevelTypes(topLevelTypes), topLevelTypes);
     }
 
     private static final int REGEX_CASE_MULTILINE = Pattern.CASE_INSENSITIVE | Pattern.MULTILINE;
@@ -135,7 +148,7 @@ public record CalldataInput(byte[] selector, byte[] body, String methodName,
             body.write(w, 0, w.length);
         }
         return new CalldataInput(selector, body.toByteArray(), header.methodName(),
-            header.topLevelTypes());
+            header.topLevelTypes(), null);
     }
 
     private static CalldataInput parseRawHex(String text, ParseHeader header) {
@@ -161,7 +174,7 @@ public record CalldataInput(byte[] selector, byte[] body, String methodName,
                 "Calldata body length is not a multiple of 32 bytes: " + body.length);
         }
 
-        return new CalldataInput(sel, body, header.methodName(), header.topLevelTypes());
+        return new CalldataInput(sel, body, header.methodName(), header.topLevelTypes(), null);
     }
 
     public static List<String> splitTopLevelTypes(String inner) {

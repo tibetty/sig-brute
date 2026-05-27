@@ -87,6 +87,19 @@ class CalldataInputTest {
     }
 
     @Test
+    void withShallowSkeleton_abstractsInlineTuplesOnly() {
+        var input = """
+            Function: swapMulti((address,uint256,address)[],bytes,address,(uint64,uint64,address))
+
+            MethodID: 0xfef828dc
+            [0]: 00000000000000000000000000000000000000000000000000000000000000e0
+            """;
+        var in = CalldataInput.parse(input).withShallowSkeleton();
+        assertEquals("swapMulti", in.methodName());
+        assertEquals(List.of("tuple[]", "bytes", "address", "tuple"), in.topLevelTypes());
+    }
+
+    @Test
     void splitsTupleTypeWithoutGreedyName() {
         // The "Function:" inner can include tuple placeholders and parameter names.
         var input = """

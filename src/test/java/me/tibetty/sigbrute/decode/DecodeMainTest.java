@@ -8,8 +8,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class DecodeMainTest {
 
@@ -33,6 +35,41 @@ class DecodeMainTest {
     }
 
     // ── success paths ─────────────────────────────────────────────────────────
+
+    @Test
+    void shallowSkeleton_abstractsTopLevelHint_keepsInlineForBodyDecode(@TempDir Path tempDir)
+        throws IOException {
+        var calldata = """
+            Function: forwardEth(bytes,(uint256,address))
+
+            MethodID: 0xfcaabe3b
+            [0]: 0000000000000000000000000000000000000000000000000000000000000060
+            [1]: 000000000000000000000000000000000000000000000000000016bcc41e9000
+            [2]: 00000000000000000000000082d9a407f99a95db4671e7021d625cbd0787a407
+            """;
+        var path = tempDir.resolve("inline_tuple.calldata");
+        Files.writeString(path, calldata, StandardCharsets.UTF_8);
+        var input = CalldataInput.parse(Files.readString(path, StandardCharsets.UTF_8));
+        var shallow = input.withShallowSkeleton();
+        assertEquals(java.util.List.of("bytes", "tuple"), shallow.topLevelTypes());
+        assertEquals(java.util.List.of("bytes", "(uint256,address)"),
+            shallow.inlineTopLevelTypes());
+        assertEquals(0,
+            DecodeMain.decode(new String[]{"--shallow-skeleton", path.toString()}, ps(captureOut()),
+                DEV_NULL));
+    }
+
+    @Test
+    void ignoreAndShallowSkeleton_mutuallyExclusive() throws IOException {
+        var path = "src/main/resources/examples/calldata/dag_swap_by_order_id.calldata";
+        ByteArrayOutputStream err = captureErr();
+        var code = DecodeMain.decode(
+            new String[]{"--ignore-skeleton", "--shallow-skeleton", path},
+            DEV_NULL,
+            ps(err));
+        assertEquals(1, code);
+        assertTrue(str(err).contains("mutually exclusive"));
+    }
 
     @Test
     void ignoreSkeleton_skipsFunctionHeaderHint() throws IOException {

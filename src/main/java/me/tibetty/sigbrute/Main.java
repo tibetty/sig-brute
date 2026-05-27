@@ -80,7 +80,7 @@ public class Main {
         err.println("Usage:");
         err.println("  sig-brute [--find-first] [--skip-lookup] <config.yaml>   brute-force search");
         err.println("  sig-brute decode [--strategy greedy|heuristic_search] [--validate]"
-            + " [input]   generate YAML from calldata");
+            + " [--shallow-skeleton] [input]   generate YAML from calldata");
         err.println();
         err.println("Options:");
         err.println("  --find-first    stop after the first matching signature (overrides YAML)");
