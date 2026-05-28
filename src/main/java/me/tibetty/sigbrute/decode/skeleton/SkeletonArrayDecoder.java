@@ -256,8 +256,9 @@ public final class SkeletonArrayDecoder {
                 perElement.add(SkeletonInlineTupleDecoder.decodeWithFieldHints(ctx,
                     AbiCodec.slice(tail, from, to - from), elementFieldHints));
             }
-            return SkeletonShape.inlineTupleArrayElement(elementFieldHints, perElement.get(0),
-                count + " elements; using element[0] — others may differ");
+            var shapeFields = richestInlineTupleElement(perElement);
+            return SkeletonShape.inlineTupleArrayElement(elementFieldHints, shapeFields,
+                count + " elements; using richest element shape");
         }
 
         var staticSlots = SkeletonInlineTupleDecoder.staticSlotsForFieldHintList(elementFieldHints);
@@ -326,19 +327,8 @@ public final class SkeletonArrayDecoder {
         if (elemOffsets.length != count) {
             return null;
         }
-        DecodedArg shape = null;
-        for (var i = 0; i < count; i++) {
-            var from = 32 + elemOffsets[i];
-            var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
-            var elem = GreedyBodyDecoder.decodeTupleElementBody(ctx,
-                AbiCodec.slice(tail, from, to - from));
-            if (shape == null) {
-                shape = elem;
-            }
-        }
-        return new DecodedArg.Tuple("",
-            shape != null ? tupleFields(shape) : List.of(),
-            opaqueTupleArrayElement0Note(count));
+        var shape = bestOpaqueTupleArrayElementShape(ctx, tail, count, elemOffsets);
+        return new DecodedArg.Tuple("", shape, opaqueTupleArrayElement0Note(count));
         }
 
     private static DecodedArg tryDecodeOpaqueStaticTupleArray(DecodeContext ctx, byte[] tail,
@@ -374,6 +364,35 @@ public final class SkeletonArrayDecoder {
             return t.fields();
         }
         return List.of(decoded);
+    }
+
+    private static List<DecodedArg> richestInlineTupleElement(List<List<DecodedArg>> perElement) {
+        List<DecodedArg> best = List.of();
+        for (var fields : perElement) {
+            if (fields.size() > best.size()) {
+                best = fields;
+            }
+        }
+        return best.isEmpty() ? perElement.get(0) : best;
+    }
+
+    /**
+     * Picks the richest element shape among {@code tuple[]} elements (field count), since
+     * element[0] alone is often a truncated or atypical row.
+     */
+    private static List<DecodedArg> bestOpaqueTupleArrayElementShape(DecodeContext ctx, byte[] tail,
+        int count, int[] elemOffsets) {
+        List<DecodedArg> best = List.of();
+        for (var i = 0; i < count; i++) {
+            var from = 32 + elemOffsets[i];
+            var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
+            var fields = tupleFields(GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                AbiCodec.slice(tail, from, to - from)));
+            if (fields.size() > best.size()) {
+                best = fields;
+            }
+        }
+        return best;
     }
 
     /**
@@ -415,18 +434,8 @@ public final class SkeletonArrayDecoder {
         var remaining = tail.length - 32;
         var elemOffsets = OffsetTable.parseMonotonic(tail, count, remaining);
         if (elemOffsets.length == count) {
-            List<DecodedArg> shape = null;
-            for (var i = 0; i < count; i++) {
-                var from = 32 + elemOffsets[i];
-                var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
-                var fields = tupleFields(GreedyBodyDecoder.decodeTupleElementBody(ctx,
-                    AbiCodec.slice(tail, from, to - from)));
-                if (shape == null) {
-                    shape = fields;
-                }
-            }
-            return new DecodedArg.Tuple("", shape != null ? shape : List.of(),
-                opaqueTupleArrayElement0Note(count));
+            var shape = bestOpaqueTupleArrayElementShape(ctx, tail, count, elemOffsets);
+            return new DecodedArg.Tuple("", shape, opaqueTupleArrayElement0Note(count));
         }
 
         var offsets = readTupleArrayOffsets(tail, count);

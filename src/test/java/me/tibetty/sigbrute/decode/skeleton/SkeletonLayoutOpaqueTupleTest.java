@@ -32,10 +32,26 @@ class SkeletonLayoutOpaqueTupleTest {
         var file = Path.of("scratch/tuple-calldata-corpus/calldata/002_02c52a55_executeWithPermit.calldata");
         Assumptions.assumeTrue(Files.isRegularFile(file));
         var text = Files.readString(file, StandardCharsets.UTF_8);
-        var input = CalldataInput.parse(text).withShallowSkeleton();
-        var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(), DecodeStrategy.GREEDY);
+        var input = CalldataInput.parse(text);
+        var shallow = input.withShallowSkeleton();
+        var decoded = AbiDecoder.decodeResult(shallow.body(), shallow.topLevelTypes(),
+            DecodeStrategy.GREEDY, false, input.topLevelTypes()).args();
         var known = SignatureStructure.parseSignature(
             "executeWithPermit((address,address,address,uint256,uint256,address,uint256,uint256),bytes,(address,uint256,bytes))");
+        assertTrue(known.structureEquals(SignatureStructure.fromDecodedArgs(decoded)));
+    }
+
+    @Test
+    void executeHooks_shallowSkeleton_tupleOfArrays() throws Exception {
+        var file = Path.of("scratch/tuple-calldata-corpus/calldata/060_2f82b89a_executeHooks.calldata");
+        Assumptions.assumeTrue(Files.isRegularFile(file));
+        var text = Files.readString(file, StandardCharsets.UTF_8);
+        var input = CalldataInput.parse(text);
+        var shallow = input.withShallowSkeleton();
+        var decoded = AbiDecoder.decodeResult(shallow.body(), shallow.topLevelTypes(),
+            DecodeStrategy.GREEDY, false, input.topLevelTypes()).args();
+        var known = SignatureStructure.parseSignature(
+            "executeHooks((address[],bytes[],uint256[],bytes32[][],bytes32[][]))");
         assertTrue(known.structureEquals(SignatureStructure.fromDecodedArgs(decoded)));
     }
 
@@ -44,8 +60,10 @@ class SkeletonLayoutOpaqueTupleTest {
         var file = Path.of("scratch/tuple-calldata-corpus/calldata/034_1acaa198_aggregate.calldata");
         Assumptions.assumeTrue(Files.isRegularFile(file));
         var text = Files.readString(file, StandardCharsets.UTF_8);
-        var input = CalldataInput.parse(text).withShallowSkeleton();
-        var decoded = AbiDecoder.decodeArgs(input.body(), input.topLevelTypes(), DecodeStrategy.GREEDY);
+        var input = CalldataInput.parse(text);
+        var shallow = input.withShallowSkeleton();
+        var decoded = AbiDecoder.decodeResult(shallow.body(), shallow.topLevelTypes(),
+            DecodeStrategy.GREEDY, false, input.topLevelTypes()).args();
         var known = SignatureStructure.parseSignature(
             "aggregate((address,uint256,bytes)[])");
         assertTrue(known.structureEquals(SignatureStructure.fromDecodedArgs(decoded)));

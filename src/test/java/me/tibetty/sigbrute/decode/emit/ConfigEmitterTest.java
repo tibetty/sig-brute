@@ -108,6 +108,23 @@ class ConfigEmitterTest {
     }
 
     @Test
+    void emitShallowOpaqueTupleArray_reinfersLeafCandidatesFromComments() {
+        var args = List.<DecodedArg>of(new DecodedArg.Tuple("[]",
+            List.of(
+                new DecodedArg.Leaf(List.of("uint256"),
+                    "field 0 — small uint 0x0000000000000000000000000000000000000000000000000000000000000802"),
+                new DecodedArg.Leaf(List.of("uint256"),
+                    "field 1 — small uint 0x000000000000000000000000000000000000000000000000000000000000119a"),
+                new DecodedArg.Leaf(List.of("uint256"),
+                    "field 2 — small uint 0x000000000000000000000000000000000000000000000000000000000000227f")),
+            null));
+        var yaml = ConfigEmitter.emit(new byte[]{0, 0, 0, 1}, "batchStake", args, List.of("tuple[]"));
+        assertTrue(yaml.contains("# arg[0]: opaque tuple[] (shallow skeleton)"));
+        assertTrue(yaml.contains("uint16+"), "pinned uint256 from skeleton should widen to calldata heuristics");
+        assertFalse(yaml.contains("- [uint256]\n      # field 1"));
+    }
+
+    @Test
     void emitShallowTopLevel_keepsHeuristicAmbiguityInTupleFields() {
         var args = List.<DecodedArg>of(
             new DecodedArg.Tuple("",

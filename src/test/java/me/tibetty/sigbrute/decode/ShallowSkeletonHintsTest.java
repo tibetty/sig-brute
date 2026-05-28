@@ -1,6 +1,8 @@
 package me.tibetty.sigbrute.decode;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,40 @@ class ShallowSkeletonHintsTest {
         var shallow = List.of("tuple", "address");
         var inline = List.of("(uint256,address)", "address");
         assertEquals(inline, ShallowSkeletonHints.layoutHints(shallow, inline));
+    }
+
+    @Test
+    void dynamicDecodeType_usesInlineTupleAndTupleArrayShape() {
+        var shallow = List.of("tuple", "tuple[]");
+        var inline = List.of("(address[],bytes[],uint256[])", "(uint256,address)[]");
+        assertEquals("(address[],bytes[],uint256[])",
+            ShallowSkeletonHints.dynamicDecodeType(shallow, inline, 0, "tuple"));
+        assertEquals("(uint256,address)[]",
+            ShallowSkeletonHints.dynamicDecodeType(shallow, inline, 1, "tuple[]"));
+    }
+
+    @Test
+    void widenOpaqueRegionForEmit_reinfersFromCommentHex() {
+        var leaf = new me.tibetty.sigbrute.decode.DecodedArg.Leaf(List.of("uint256"),
+            "small uint 0x0000000000000000000000000000000000000000000000000000000000000802");
+        var widened = (me.tibetty.sigbrute.decode.DecodedArg.Leaf) ShallowSkeletonHints
+            .widenOpaqueRegionForEmit(leaf);
+        assertTrue(widened.candidates().contains("uint16+"));
+        assertEquals(List.of("uint256"), leaf.candidates());
+    }
+
+    @Test
+    void singletonFixedArrayField_detectsParenthesizedFixedArray() {
+        assertEquals("bytes32[67]",
+            ShallowSkeletonHints.singletonFixedArrayField(List.of("bytes32[67]")));
+        assertNull(ShallowSkeletonHints.singletonFixedArrayField(List.of("bytes32", "bytes32")));
+        assertNull(ShallowSkeletonHints.singletonFixedArrayField(List.of()));
+    }
+
+    @Test
+    void opaqueTupleFieldHints_fromInlineTopLevelTuple() {
+        var inline = List.of("(address[],bytes32[][])");
+        assertEquals(2, ShallowSkeletonHints.opaqueTupleFieldHints(inline, 0).size());
     }
 
     @Test

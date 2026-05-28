@@ -155,7 +155,8 @@ public final class SkeletonLayout {
             return new TupleSlotResolution(1, 1, 0);
         }
 
-        var dynamic = AbiCodec.looksLikeOffsetAt(body, cursor, body.length, head.headSize());
+        var headBound = headBoundForSlot(cursor, head.headSize());
+        var dynamic = AbiCodec.looksLikeOffsetAt(body, cursor, body.length, headBound);
         if (dynamic) {
             return new TupleSlotResolution(1, 1, 0);
         }
@@ -181,6 +182,14 @@ public final class SkeletonLayout {
             reserved += demand.minSlots()[j];
         }
         return reserved;
+    }
+
+    /**
+     * Plausible head boundary for one argument starting at {@code slotStart}: at least one slot,
+     * never wider than the global scan (which may include a nested tuple's interior offsets).
+     */
+    static int headBoundForSlot(int slotStart, int scannedHeadSize) {
+        return Math.min(scannedHeadSize, (slotStart + 1) * 32);
     }
 
     static int countStaticHeadSlotsUntilOffset(byte[] body, HeadSection head, int cursor) {
@@ -222,7 +231,8 @@ public final class SkeletonLayout {
         for (var i = 0; i < hint.size(); i++) {
             if (SkeletonTypes.isTupleHint(hint.get(i)) && tupleSlots[i] == 1) {
                 var slotIndex = slotCursorBeforeIndex(hint, i, minSlots, tupleSlots);
-                if (!AbiCodec.looksLikeOffsetAt(body, slotIndex, body.length, head.headSize())) {
+                var headBound = headBoundForSlot(slotIndex, head.headSize());
+                if (!AbiCodec.looksLikeOffsetAt(body, slotIndex, body.length, headBound)) {
                     return i;
                 }
             }
@@ -269,8 +279,9 @@ public final class SkeletonLayout {
         if (AbiTypeSyntax.isDynamicHint(type)) {
             return true;
         }
+        var headBound = headBoundForSlot(slotIndex, head.headSize());
         return SkeletonTypes.isTupleHint(type) && take == 1
-            && AbiCodec.looksLikeOffsetAt(body, slotIndex, body.length, head.headSize());
+            && AbiCodec.looksLikeOffsetAt(body, slotIndex, body.length, headBound);
     }
 
     static int slotCursorBeforeIndex(List<String> hint, int idx, int[] minSlots,

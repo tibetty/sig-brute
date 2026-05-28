@@ -2,13 +2,25 @@ package me.tibetty.sigbrute.decode;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 import me.tibetty.sigbrute.decode.abi.AbiTypeSyntax;
+import me.tibetty.sigbrute.decode.infer.TypeInferrer;
 import me.tibetty.sigbrute.decode.skeleton.SkeletonTypes;
+import me.tibetty.sigbrute.util.HexUtil;
 
 /**
- * Shallow skeleton: collapse top-level inline {@code (T,...)} to opaque {@code tuple} /
- * {@code tuple[]} for layout hint names, while optionally retaining the original {@code Function:}
- * types for head-slot planning and per-parameter decode.
+ * Shallow skeleton mode ({@code decode --shallow-skeleton}).
+ *
+ * <p>Block explorers often show {@code tuple} / {@code tuple[]} at the top level while hiding
+ * inner field types. Shallow skeleton keeps RE-friendly opaque top-level names in emitted YAML,
+ * but still uses the original {@code Function:} line in two limited ways:
+ *
+ * <ul>
+ *   <li><b>Layout</b> — head-slot demand and tuple span resolution ({@link #layoutHints})
+ *   <li><b>Structure decode</b> — tuple nesting and array suffixes inside opaque payloads
+ *       ({@link #dynamicDecodeType}, {@link #opaqueTupleFieldHints}); per-leaf type candidates
+ *       in YAML still come from calldata heuristics, not pinned skeleton types
+ * </ul>
  */
 public final class ShallowSkeletonHints {
 
@@ -45,25 +57,6 @@ public final class ShallowSkeletonHints {
     }
 
     /**
-     * Type string used when decoding argument {@code argIndex}'s payload under shallow skeleton.
-     */
-    public static String bodyDecodeType(List<String> shallow, List<String> inline, int argIndex) {
-        var shallowType = shallow.get(argIndex);
-        if (inline == null || inline.isEmpty() || argIndex >= inline.size()) {
-            return shallowType;
-        }
-        var inlineType = inline.get(argIndex);
-        if (inlineType == null) {
-            return shallowType;
-        }
-        if (SkeletonTypes.isInlineTuple(inlineType)
-            || SkeletonTypes.inlineTupleBase(inlineType) != null) {
-            return inlineType;
-        }
-        return shallowType;
-    }
-
-    /**
      * Replaces a single top-level inline tuple type with {@code tuple} plus any outer array suffix.
      * Non-tuple types are returned unchanged.
      */
@@ -96,5 +89,123 @@ public final class ShallowSkeletonHints {
     public static String arraySuffixFromShallowType(String shallowType) {
         var parts = AbiTypeSyntax.splitOutermostArraySuffix(shallowType);
         return parts != null ? parts.suffix() : "";
+    }
+
+    /**
+     * Type string for decoding a dynamic top-level argument: inline tuple or inline {@code (T,)[]}
+     * when present, otherwise the shallow hint name.
+     */
+    public static String dynamicDecodeType(List<String> shallow, List<String> inline, int argIndex,
+        String shallowType) {
+        if (inline == null || inline.isEmpty() || argIndex >= inline.size()) {
+            return shallowType;
+        }
+        var inl = inline.get(argIndex);
+        if (inl == null || inl.isEmpty()) {
+            return shallowType;
+        }
+        if (SkeletonTypes.isInlineTuple(inl)) {
+            return inl;
+        }
+        var parts = AbiTypeSyntax.splitOutermostArraySuffix(inl);
+        if (parts != null && SkeletonTypes.isInlineTuple(parts.base())) {
+            return inl;
+        }
+        return shallowType;
+    }
+
+    /**
+     * Per-field inline types for decoding an opaque top-level {@code tuple} body, or empty when
+     * the inline hint is not an inline tuple.
+     */
+    public static List<String> opaqueTupleFieldHints(List<String> inline, int argIndex) {
+        if (inline == null || inline.isEmpty() || argIndex >= inline.size()) {
+            return List.of();
+        }
+        var inl = inline.get(argIndex);
+        if (SkeletonTypes.isInlineTuple(inl)) {
+            return SkeletonTypes.inlineFieldTypes(inl);
+        }
+        return List.of();
+    }
+
+    /**
+     * When an inline tuple has a single field that is a fixed-size array (e.g. {@code bytes32[67]}
+     * inside {@code (bytes32[67])}), returns that field type. Used to decode N head slots as one
+     * {@code T[N]} field instead of N separate tuple fields.
+     */
+    public static String singletonFixedArrayField(List<String> fieldHints) {
+        if (fieldHints == null || fieldHints.size() != 1) {
+            return null;
+        }
+        var field = fieldHints.get(0);
+        var parts = AbiTypeSyntax.splitArraySuffix(field);
+        if (parts == null || parts.suffix().isEmpty() || parts.suffix().contains("[]")) {
+            return null;
+        }
+        if (AbiTypeSyntax.staticSlotCount(field) <= 1) {
+            return null;
+        }
+        return field;
+    }
+
+    private static final Pattern HEX_WORD_IN_COMMENT = Pattern.compile("0x[0-9a-fA-F]+");
+
+    /**
+     * Re-infers leaf type candidates from calldata words referenced in decode comments. Used when
+     * emitting shallow YAML so inner fields stay heuristic ({@code uint*}, …) while tuple nesting
+     * still comes from structure decode.
+     */
+    public static DecodedArg widenOpaqueRegionForEmit(DecodedArg arg) {
+        if (arg instanceof DecodedArg.Leaf leaf) {
+            return widenLeafForEmit(leaf);
+        }
+        if (arg instanceof DecodedArg.PrimArray pa) {
+            return new DecodedArg.PrimArray(pa.arraySuffix(), pa.baseCandidates(), pa.comment());
+        }
+        if (arg instanceof DecodedArg.Tuple t) {
+            var fields = t.fields().stream().map(ShallowSkeletonHints::widenOpaqueRegionForEmit).toList();
+            return new DecodedArg.Tuple(t.arraySuffix(), fields, t.comment());
+        }
+        return arg;
+    }
+
+    private static DecodedArg widenLeafForEmit(DecodedArg.Leaf leaf) {
+        var word = wordFromDecodeComment(leaf.comment());
+        if (word == null) {
+            return leaf;
+        }
+        var inferred = TypeInferrer.inferStatic(word);
+        if (inferred.equals(leaf.candidates())) {
+            return leaf;
+        }
+        return new DecodedArg.Leaf(inferred, leaf.comment());
+    }
+
+    private static byte[] wordFromDecodeComment(String comment) {
+        if (comment == null || comment.isBlank()) {
+            return null;
+        }
+        var matcher = HEX_WORD_IN_COMMENT.matcher(comment);
+        String best = null;
+        while (matcher.find()) {
+            var hex = matcher.group();
+            if (best == null || hex.length() > best.length()) {
+                best = hex;
+            }
+        }
+        if (best == null) {
+            return null;
+        }
+        var raw = HexUtil.fromHex(best.substring(2));
+        if (raw.length == 32) {
+            return raw;
+        }
+        if (raw.length > 32) {
+            return java.util.Arrays.copyOfRange(raw, raw.length - 32, raw.length);
+        }
+        var padded = new byte[32];
+        System.arraycopy(raw, 0, padded, 32 - raw.length, raw.length);
+        return padded;
     }
 }

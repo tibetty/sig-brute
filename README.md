@@ -119,19 +119,19 @@ flowchart TD
 ./gradlew shadowJar
 ```
 
-The fat JAR is produced at `build/libs/sig-brute-1.2.0-all.jar` (thin library JAR:
+The fat JAR is produced at `build/libs/sig-brute-1.3.0-all.jar` (thin library JAR:
 `sig-brute-1.2.0.jar` for Maven dependents — see [designs/public_api.md](designs/public_api.md)).
 
 ## Usage
 
 ```bash
-java -jar build/libs/sig-brute-1.2.0-all.jar <config.yaml>                    # brute-force search
-java -jar build/libs/sig-brute-1.2.0-all.jar -                                # search, stdin config
-java -jar build/libs/sig-brute-1.2.0-all.jar --find-first <config.yaml>       # stop at first match
-java -jar build/libs/sig-brute-1.2.0-all.jar --skip-lookup <config.yaml>      # search without API
-java -jar build/libs/sig-brute-1.2.0-all.jar decode <calldata.txt>            # draft YAML
-java -jar build/libs/sig-brute-1.2.0-all.jar decode --validate <calldata.txt> # decode + YAML check
-java -jar build/libs/sig-brute-1.2.0-all.jar decode --strategy heuristic_search <calldata.txt>
+java -jar build/libs/sig-brute-1.3.0-all.jar <config.yaml>                    # brute-force search
+java -jar build/libs/sig-brute-1.3.0-all.jar -                                # search, stdin config
+java -jar build/libs/sig-brute-1.3.0-all.jar --find-first <config.yaml>       # stop at first match
+java -jar build/libs/sig-brute-1.3.0-all.jar --skip-lookup <config.yaml>      # search without API
+java -jar build/libs/sig-brute-1.3.0-all.jar decode <calldata.txt>            # draft YAML
+java -jar build/libs/sig-brute-1.3.0-all.jar decode --validate <calldata.txt> # decode + YAML check
+java -jar build/libs/sig-brute-1.3.0-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
 | Flag                                  | Subcommand | Effect                                                                                               |
@@ -141,7 +141,7 @@ java -jar build/libs/sig-brute-1.2.0-all.jar decode --strategy heuristic_search 
 | `--strategy greedy\|heuristic_search` | decode     | Body decode policy (default: `greedy`)                                                               |
 | `--validate`                          | decode     | Re-parse emitted YAML and verify selector before stdout                                              |
 | `--ignore-skeleton`                   | decode     | Ignore `Function:` header; decode calldata bytes only (corpus / stress runs)                         |
-| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level only; inner fields from calldata heuristics (`[bytes, string]`, `[]`, `uint*`, …) |
+| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level in YAML; inline `Function:` types used for layout and tuple/array structure only; leaf candidates still from calldata heuristics (`[bytes, string]`, `[]`, `uint*`, …) |
 | `--wide`                              | decode     | With `heuristic_search`: union greedy + compact type candidates per slot (larger YAML)               |
 
 In find-first mode the search runs sequentially in type-frequency order so the most
@@ -150,8 +150,8 @@ likely signatures are tried first.
 Chain them to go from calldata to a match in one shot:
 
 ```bash
-java -jar build/libs/sig-brute-1.2.0-all.jar decode calldata.txt \
-  | java -jar build/libs/sig-brute-1.2.0-all.jar -
+java -jar build/libs/sig-brute-1.3.0-all.jar decode calldata.txt \
+  | java -jar build/libs/sig-brute-1.3.0-all.jar -
 ```
 
 Example output:
@@ -178,9 +178,9 @@ from value shapes. The `decode` subcommand does all of that mechanically and
 emits a sig-brute YAML you only need to refine.
 
 ```bash
-java -jar build/libs/sig-brute-1.2.0-all.jar decode <calldata.txt>
-java -jar build/libs/sig-brute-1.2.0-all.jar decode < calldata.txt   # or stdin
-java -jar build/libs/sig-brute-1.2.0-all.jar decode --strategy heuristic_search <calldata.txt>
+java -jar build/libs/sig-brute-1.3.0-all.jar decode <calldata.txt>
+java -jar build/libs/sig-brute-1.3.0-all.jar decode < calldata.txt   # or stdin
+java -jar build/libs/sig-brute-1.3.0-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
 Non-fatal decode warnings are printed to **stderr**; the YAML header lists them as
@@ -222,7 +222,7 @@ decoder uses element[0] and flags the assumption in a comment.
 ### Example
 
 ```bash
-java -jar build/libs/sig-brute-1.2.0-all.jar decode \
+java -jar build/libs/sig-brute-1.3.0-all.jar decode \
   src/main/resources/examples/calldata/dag_swap_by_order_id.calldata
 ```
 
@@ -295,7 +295,7 @@ is in [`designs/public_api.md`](designs/public_api.md).
 | Situation | Prefer | Why |
 | --------- | ------ | --- |
 | Etherscan dump with a trusted `Function:` line | `greedy` (default) | Uses skeleton hints; fast draft YAML |
-| 4byte full sig in `Function:` but RE-friendly top-level names | `heuristic_search` + `--shallow-skeleton` | Opaque top-level hints; inner tuple fields from heuristics, not inline `Function:` types |
+| 4byte full sig in `Function:` but RE-friendly top-level names | `heuristic_search` + `--shallow-skeleton` | Opaque top-level YAML; inline types guide layout and nesting; leaf types from heuristics |
 | Raw hex or no reliable `Function:` line | `heuristic_search` + `--ignore-skeleton` | Explores head/tail and dynamic tails on bytes only |
 | Complex tuples, layout ambiguous | `heuristic_search` | Scores branches; warnings and `# Alternate structures` on near-ties |
 | Compact YAML for search (`uint160+`, `int*`) | `heuristic_search` | Collapses types to wildcards/floors |
@@ -451,7 +451,7 @@ find_first: false
 ```
 
 ```bash
-java -jar build/libs/sig-brute-1.2.0-all.jar src/main/resources/examples/config/erc20_transfer.yaml
+java -jar build/libs/sig-brute-1.3.0-all.jar src/main/resources/examples/config/erc20_transfer.yaml
 ```
 
 Expected match: `transfer(address,uint256)`
@@ -474,7 +474,7 @@ find_first: true
 ```
 
 ```bash
-java -jar build/libs/sig-brute-1.2.0-all.jar src/main/resources/examples/config/fill_orders.yaml
+java -jar build/libs/sig-brute-1.3.0-all.jar src/main/resources/examples/config/fill_orders.yaml
 ```
 
 Expected match: `fillOrders((address,uint256)[],bytes32)`

@@ -25,6 +25,10 @@ Decode tests should live in the package that mirrors production code
 (`decode/abi/`, `decode/strategy/`, …). Integration tests for end-to-end decode stay in
 `decode/` at the package root.
 
+Some tests use an optional local tuple calldata corpus under `scratch/tuple-calldata-corpus/`
+(gitignored). They skip automatically when the corpus is absent. See [`scratch/README.md`](scratch/README.md)
+to build the corpus for structure evaluation.
+
 Please open an issue before large feature work (new subcommands, breaking config
 format changes, or new runtime dependencies).
 

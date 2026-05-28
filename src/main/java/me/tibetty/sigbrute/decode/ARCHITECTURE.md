@@ -7,6 +7,7 @@ decode/
 ├── AbiDecoder.java              # decodeArgs / decodeResult(body, hint [, strategy])
 ├── DecodeResult.java            # args + warnings + strategy
 ├── CalldataInput.java           # Parse Etherscan / raw hex input
+├── ShallowSkeletonHints.java    # --shallow-skeleton: opaque top-level + layout/structure hints
 ├── DecodedArg.java              # Decoded tree (Leaf / PrimArray / Tuple)
 ├── SignatureStructure.java      # Structural compare for tests
 ├── DecodeMain.java              # CLI: sig-brute decode [--strategy …]
@@ -66,6 +67,33 @@ flowchart TD
 - **Heuristic search** — branch scoring on body parse; `GeneralizedTypeInferrer` emits `uintN+`, `bytesN+`, `int*`, `fixed*`, etc.
 
 When to use which strategy, CLI flags, and decode→search workflow: [README § Choosing decode and search settings](../../../../../README.md#choosing-decode-and-search-settings).
+
+## Shallow skeleton (`--shallow-skeleton`)
+
+`CalldataInput.withShallowSkeleton()` abstracts each top-level inline `(T,…)` to `tuple` / `tuple[]`
+for YAML and skeleton hint names. `DecodeMain` still passes the original `Function:` types as
+`inlineTopLevelHint` to `AbiDecoder.decodeResult(…, inlineHint)`:
+
+| Use of inline types | Purpose |
+| ------------------- | ------- |
+| `ShallowSkeletonHints.layoutHints` | Correct head-slot counts (static vs dynamic tuples) |
+| `dynamicDecodeType` / `opaqueTupleFieldHints` | Tuple nesting and `[]` / `[][]` structure inside opaque bodies |
+| Emitted YAML leaf candidates | Calldata heuristics only (`uint*`, `[bytes, string]`, …) |
+
+`SkeletonLayout.headBoundForSlot` prevents the global head scan from treating a nested tuple’s
+offset table as the outer argument head (single dynamic `tuple` pointer at the top level).
+`absorbRemainingSlack` and dynamic-offset registration use the same per-arg bound so inflated
+head scans do not turn a tail pointer into a multi-slot static tuple.
+
+Opaque top-level tuple decode (`SkeletonDecoder.decodeSkeletonTupleArg`) order:
+
+1. Singleton fixed array `(bytes32[N])` → one `PrimArray` field
+2. Plausible head offset → inline field hints on tail (or heuristic head/tail)
+3. Static head span with inline field hints
+4. Heuristic span, then per-slot inference fallback
+
+Structural evaluation: `TupleCorpusShallowSkeletonEvaluationTest` (294 local corpus fixtures,
+optional under `scratch/tuple-calldata-corpus/`).
 
 ## Imports (public API)
 

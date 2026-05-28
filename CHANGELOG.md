@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-28
+
+### Added
+
+- Shallow skeleton: `ShallowSkeletonHints` helpers (`layoutHints`, `dynamicDecodeType`, `opaqueTupleFieldHints`, `singletonFixedArrayField`, `widenOpaqueRegionForEmit`)
+- `SkeletonLayout.headBoundForSlot` — per-argument head bound so inflated global head scans do not steal dynamic tuple slots
+- `GreedyBodyDecoder.decodeBestHeadTailTuple` — scored head/tail parse for opaque tuple interiors without inline field hints
+- `scratch/README.md` — optional local tuple corpus and evaluation scripts
+
+### Changed
+
+- `decode --shallow-skeleton`: inline `Function:` types drive layout and tuple/array **structure** inside opaque top-level bodies; YAML leaf candidates stay calldata heuristics (`uint*`, `[bytes, string]`, …)
+- Shallow skeleton structural match on the local tuple corpus (294 fixtures): **100%** for both `greedy` and `heuristic_search` (see `TupleCorpusShallowSkeletonEvaluationTest`)
+- Fixed `(bytes32[N])`-style singleton wrappers decode as one `T[N]` field, not N tuple leaves
+- `decode/ARCHITECTURE.md` and README document shallow-skeleton behavior
+
 ## [1.2.0] — 2026-05-27
 
 ### Added
@@ -16,7 +32,6 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- `--shallow-skeleton` no longer passes `Function:` inline types into decode; emitted tuple fields keep heuristic ambiguity (`[bytes, string]`, `[]`, `uint*`) rather than skeleton-narrowed single types
 - `DecodeMain` / `AbiDecoder`: empty lists replace `null` skeleton hints
 - README documents `--shallow-skeleton` and decode/search settings for tuple-heavy signatures
 
@@ -33,31 +48,3 @@ All notable changes to this project are documented in this file.
 - `decode.layout` — shared `OffsetTable` and `DynamicHeadSlots` for skeleton and body decoders
 - Search CLI: automatic Sourcify → 4byte.directory signature preflight (`--skip-lookup` for offline)
 - Decode CLI: `--strategy`, `--validate` (YAML round-trip via `DecodeConfigValidator`)
-- `GeneralizedTypeInferrer` for heuristic-search floor patterns (`uintN+`, `int*`, …)
-- Decode package split: `abi/`, `skeleton/`, `strategy/`, `infer/`, `emit/`; tests mirror production layout
-- `CorpusFixtureLocator` and local-corpus structure tests; greedy nested dynamic-array regression test
-
-### Changed
-
-- Skeleton and body decoders share layout kernel instead of reaching into `GreedyBodyDecoder`
-- `ConfigEmitter` emits `# WARNING:` lines and strategy header; warnings also on stderr in `decode`
-- JPMS exports `decode.strategy` and `decode.emit`; `decode.infer`, `decode.layout`, `lookup` remain internal
-- Greedy body decoder: nested dynamic array/tuple layout and inline tuple head handling
-
-## [1.0.0] — 2026-05-23
-
-### Added
-
-- Brute-force search for Ethereum function signatures from a 4-byte ABI selector
-- `decode` subcommand: Etherscan calldata dump or raw hex → draft sig-brute YAML
-- Heuristic ABI decoder with optional Etherscan `Function:` skeleton
-- Type wildcards (`uint*`, `bytes*`, tuples, arrays) with Cartesian-product search
-- Multi-machine sharding (`shard_index` / `total_shards`)
-- `--find-first` CLI flag and `find_first` YAML option
-- TypeRanker: search ordering by public sigbank type frequencies
-- Inline Keccak-256 (no Bouncy Castle dependency)
-- Round-trip property tests (encode → decode → search)
-
-### Open source
-
-- Apache 2.0 license, CONTRIBUTING, CI workflow, third-party NOTICE

@@ -69,7 +69,7 @@ public final class ConfigEmitter {
         sb.append("#\n");
         if (header.shallow()) {
             sb.append("# Shallow skeleton: top-level inline tuples shown as opaque tuple / tuple[].\n");
-            sb.append("# Inner tuple fields use calldata heuristics only — expect [bytes, string], uint*, or [] ambiguities.\n");
+            sb.append("# Inner tuple fields decoded from calldata — expect [bytes, string], uint*, or [] ambiguities.\n");
         }
         sb.append("# Recovered prototype (first candidate per leaf — wildcards collapsed):\n");
         sb.append("#   ").append(recoveredPrototype(header)).append('\n');
@@ -129,7 +129,8 @@ public final class ConfigEmitter {
     private static void appendArgComment(StringBuilder sb, DecodedArg arg, int index, boolean shallow,
         List<String> shallowTopLevelTypes) {
         if (isOpaqueShallowArg(index, shallow, shallowTopLevelTypes)) {
-            sb.append(": opaque tuple (shallow skeleton)");
+            sb.append(": opaque ").append(shallowTopLevelTypes.get(index))
+                .append(" (shallow skeleton)");
             return;
         }
         if (arg.comment() != null && !arg.comment().isBlank()) {
@@ -154,7 +155,8 @@ public final class ConfigEmitter {
         var keyForm = quoteTupleKey(suffix);
         sb.append("  - ").append(keyForm).append(':').append('\n');
         var childIndent = "      ";
-        if (decoded instanceof DecodedArg.Tuple t) {
+        var forEmit = ShallowSkeletonHints.widenOpaqueRegionForEmit(decoded);
+        if (forEmit instanceof DecodedArg.Tuple t) {
             for (var j = 0; j < t.fields().size(); j++) {
                 var f = t.fields().get(j);
                 if (f.comment() != null && !f.comment().isBlank()) {
@@ -165,7 +167,7 @@ public final class ConfigEmitter {
                 emitArg(sb, f, childIndent);
             }
         } else {
-            emitArg(sb, decoded, childIndent);
+            emitArg(sb, forEmit, childIndent);
         }
     }
 

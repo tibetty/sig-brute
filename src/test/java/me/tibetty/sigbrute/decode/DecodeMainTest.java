@@ -37,7 +37,7 @@ class DecodeMainTest {
     // ── success paths ─────────────────────────────────────────────────────────
 
     @Test
-    void shallowSkeleton_abstractsTopLevelHint_keepsInlineForBodyDecode(@TempDir Path tempDir)
+    void shallowSkeleton_abstractsTopLevelHint_keepsInlineForLayout(@TempDir Path tempDir)
         throws IOException {
         var calldata = """
             Function: forwardEth(bytes,(uint256,address))

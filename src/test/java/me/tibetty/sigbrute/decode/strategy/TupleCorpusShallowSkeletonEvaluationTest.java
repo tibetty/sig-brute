@@ -15,9 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
 /**
- * Structural evaluation with shallow skeleton: opaque top-level {@code tuple} / {@code tuple[]}
- * hints only (no inline types from {@code Function:} for decode). Writes
- * {@code structure-check-shallow.json} when the local corpus is present.
+ * Structural evaluation for {@code decode --shallow-skeleton}: opaque top-level hints plus
+ * inline {@code Function:} types for layout and inner nesting (leaf types not compared).
+ * Writes {@code structure-check-shallow.json} when the local corpus is present.
  */
 class TupleCorpusShallowSkeletonEvaluationTest {
 
@@ -41,20 +41,23 @@ class TupleCorpusShallowSkeletonEvaluationTest {
             var knownSig = (String) entry.get("text_signature");
             var label = file.getFileName().toString();
             try {
-                var input = CalldataInput.parse(Files.readString(file, StandardCharsets.UTF_8))
-                    .withShallowSkeleton();
+                var input = CalldataInput.parse(Files.readString(file, StandardCharsets.UTF_8));
+                var shallowHint = input.withShallowSkeleton().topLevelTypes();
+                List<String> layoutInline = input.topLevelTypes() != null
+                    ? input.topLevelTypes()
+                    : List.of();
                 var known = SignatureStructure.parseSignature(knownSig);
 
-                var greedy = AbiDecoder.decodeResult(input.body(), input.topLevelTypes(),
-                    DecodeStrategy.GREEDY, false, List.of()).args();
+                var greedy = AbiDecoder.decodeResult(input.body(), shallowHint,
+                    DecodeStrategy.GREEDY, false, layoutInline).args();
                 if (known.structureEquals(SignatureStructure.fromDecodedArgs(greedy))) {
                     greedyMatch++;
                 } else {
                     mismatches.add(label + " [greedy] — known: " + knownSig);
                 }
 
-                var search = AbiDecoder.decodeResult(input.body(), input.topLevelTypes(),
-                    DecodeStrategy.HEURISTIC_SEARCH, false, List.of()).args();
+                var search = AbiDecoder.decodeResult(input.body(), shallowHint,
+                    DecodeStrategy.HEURISTIC_SEARCH, false, layoutInline).args();
                 if (known.structureEquals(SignatureStructure.fromDecodedArgs(search))) {
                     searchMatch++;
                 } else {

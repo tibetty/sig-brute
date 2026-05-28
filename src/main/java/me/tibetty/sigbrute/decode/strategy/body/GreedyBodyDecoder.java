@@ -39,6 +39,42 @@ public final class GreedyBodyDecoder {
 
         return decodeHeadTailTuple(ctx, body, headSize);
     }
+
+    /**
+     * Tries each plausible head boundary and keeps the highest-scoring head/tail parse (penalizes
+     * bare leaves where a dynamic array or tuple was expected). Used for opaque tuple interiors.
+     */
+    public static List<DecodedArg> decodeBestHeadTailTuple(DecodeContext ctx, byte[] body) {
+        var sizes = headSizeCandidates(body);
+        if (sizes.isEmpty()) {
+            return decodeFlatStaticWords(ctx, body, body.length / 32);
+        }
+        List<DecodedArg> bestFields = null;
+        var bestScore = Integer.MIN_VALUE;
+        for (var headSize : sizes) {
+            var numFields = headSize / 32;
+            var dynSlots = DynamicHeadSlots.collect(body, numFields, headSize);
+            var fields = decodeHeadTailTuple(ctx, body, headSize);
+            var score = scoreHeadTailParse(body, headSize, fields, dynSlots);
+            if (score > bestScore) {
+                bestScore = score;
+                bestFields = fields;
+            }
+        }
+        return bestFields != null ? bestFields : List.of();
+    }
+
+    static int scoreHeadTailParse(byte[] body, int headSize, List<DecodedArg> fields,
+        List<int[]> dynSlots) {
+        var score = 500 + dynSlots.size() * 20 - (body.length / 32 - headSize / 32);
+        for (var field : fields) {
+            if (field instanceof DecodedArg.Leaf) {
+                score -= 50;
+            }
+        }
+        return score;
+    }
+
     public static List<DecodedArg> decodeFlatStaticWords(DecodeContext ctx, byte[] body, int numWords) {
         var out = new ArrayList<DecodedArg>(numWords);
         for (var i = 0; i < numWords; i++) {
@@ -135,6 +171,9 @@ public final class GreedyBodyDecoder {
 
         var count = lengthWord.intValueExact();
         if (count == 0) {
+            if (body.length == 32) {
+                return new DecodedArg.Leaf(List.of(BYTES, STRING), "empty " + BYTES + "/" + STRING);
+            }
             return new DecodedArg.PrimArray("[]", List.of("address", UINT_WILDCARD), "empty array");
         }
 
@@ -183,6 +222,12 @@ public final class GreedyBodyDecoder {
         var rowArray = tryDecodeOffsetPrefixedRowArray(ctx, elemSlice);
         if (rowArray != null) {
             return rowArray;
+        }
+
+        if (elemSlice.length == 32 && AbiCodec.looksLikeDynamicArrayCount(elemSlice)
+            && AbiCodec.uintOf(AbiCodec.slice(elemSlice, 0, 32)).signum() == 0) {
+            return new DecodedArg.PrimArray("[]", List.of(BYTES, UINT_WILDCARD),
+                "empty dynamic array element (nested matrix row)");
         }
 
         for (var headSize : headSizeCandidates(elemSlice)) {
