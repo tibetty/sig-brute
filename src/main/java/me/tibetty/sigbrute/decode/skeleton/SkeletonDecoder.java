@@ -129,8 +129,7 @@ public final class SkeletonDecoder {
         }
         var off = AbiCodec.safeToInt(offWord, "head offset for arg " + argIndex);
         var next = AbiCodec.nextDynOffsetAfter(dynOffsets, off, body.length);
-        var type = ShallowSkeletonHints.dynamicDecodeType(argContext.hint(), argContext.inlineHint(),
-            argIndex, decodeAs);
+        var type = ShallowSkeletonHints.dynamicDecodeType(argContext.inlineHint(), argIndex, decodeAs);
         return SkeletonArrayDecoder.decodeTopLevel(ctx, type, AbiCodec.slice(body, off, next - off));
     }
 

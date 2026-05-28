@@ -95,8 +95,7 @@ public final class ShallowSkeletonHints {
      * Type string for decoding a dynamic top-level argument: inline tuple or inline {@code (T,)[]}
      * when present, otherwise the shallow hint name.
      */
-    public static String dynamicDecodeType(List<String> shallow, List<String> inline, int argIndex,
-        String shallowType) {
+    public static String dynamicDecodeType(List<String> inline, int argIndex, String shallowType) {
         if (inline == null || inline.isEmpty() || argIndex >= inline.size()) {
             return shallowType;
         }
@@ -172,7 +171,7 @@ public final class ShallowSkeletonHints {
 
     private static DecodedArg widenLeafForEmit(DecodedArg.Leaf leaf) {
         var word = wordFromDecodeComment(leaf.comment());
-        if (word == null) {
+        if (word.length == 0) {
             return leaf;
         }
         var inferred = TypeInferrer.inferStatic(word);
@@ -184,7 +183,7 @@ public final class ShallowSkeletonHints {
 
     private static byte[] wordFromDecodeComment(String comment) {
         if (comment == null || comment.isBlank()) {
-            return null;
+            return new byte[0];
         }
         var matcher = HEX_WORD_IN_COMMENT.matcher(comment);
         String best = null;
@@ -195,7 +194,7 @@ public final class ShallowSkeletonHints {
             }
         }
         if (best == null) {
-            return null;
+            return new byte[0];
         }
         var raw = HexUtil.fromHex(best.substring(2));
         if (raw.length == 32) {

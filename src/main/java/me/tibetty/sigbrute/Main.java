@@ -6,7 +6,6 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.regex.Pattern;
 import me.tibetty.sigbrute.decode.DecodeMain;
 import me.tibetty.sigbrute.lookup.HttpSignatureLookup;
 import me.tibetty.sigbrute.lookup.SignaturePreflight;
@@ -16,22 +15,6 @@ import me.tibetty.sigbrute.search.SearchEngine;
 import me.tibetty.sigbrute.search.SearchException;
 
 public class Main {
-
-    /**
-     * Compiled pattern for all recognised ANSI/VT escape sequences:
-     * <ul>
-     *   <li>CSI (ESC 0x5B ...): ESC [ ... final-byte</li>
-     *   <li>OSC/DCS/PM/APC (ESC 0x5D/0x50/0x5E/0x5F ...): lazy payload terminated by BEL or ST (ESC \)</li>
-     *   <li>Fe/Fp bare ESC+letter (e.g. ESC c = full reset, ESC M = reverse index)</li>
-     * </ul>
-     */
-    private static final Pattern ANSI_ESCAPE = Pattern.compile(
-        // CSI: ESC [ ... final byte
-        "\\x1B(?:\\[[;:\\d]*[A-Za-z]"
-        // OSC/DCS/PM/APC: ESC ] ^ _ P ... payload ... BEL or ST (ESC \)
-        + "|[\\]\\^_P](?:[^\\x07\\x1B]|\\x1B(?![\\\\]))*(?:\\x07|\\x1B\\\\)"
-        // Fe/Fp bare: ESC <letter> (e.g. ESC c, ESC M, ESC 7)
-        + "|[A-Za-z])");
 
     /** CLI entry point — calls {@link System#exit} with the status returned by {@link #run}. */
     public static void main(String[] args) throws IOException {
@@ -162,10 +145,93 @@ public class Main {
      * ESC+letter resets) that overwrite terminal output or hide content (OWASP A03).
      */
     static String sanitizeForTerminal(String s) {
-        // Strip all recognised ANSI/VT escape sequences
-        var stripped = ANSI_ESCAPE.matcher(s).replaceAll("");
-        // Strip remaining C0 control characters (0x00-0x1F) and DEL (0x7F)
-        return stripped.replaceAll("[\\x00-\\x1F\\x7F]", "");
+        var stripped = stripAnsiEscapes(s);
+        return stripAsciiControlCharacters(stripped);
+    }
+
+    /**
+     * Linear scan for CSI, OSC/DCS/PM/APC, and Fe/Fp sequences (replaces a single large regex to
+     * avoid catastrophic backtracking on adversarial input).
+     */
+    static String stripAnsiEscapes(String s) {
+        var out = new StringBuilder(s.length());
+        var i = 0;
+        while (i < s.length()) {
+            if (s.charAt(i) != '\u001B') {
+                out.append(s.charAt(i));
+                i++;
+                continue;
+            }
+            var skip = ansiEscapeLength(s, i);
+            i += skip == 0 ? 1 : skip;
+        }
+        return out.toString();
+    }
+
+    /** @return bytes consumed from {@code escIndex}, or 0 if not a recognised sequence */
+    private static int ansiEscapeLength(String s, int escIndex) {
+        if (escIndex + 1 >= s.length()) {
+            return 0;
+        }
+        return switch (s.charAt(escIndex + 1)) {
+            case '[' -> csiEscapeLength(s, escIndex);
+            case ']', '^', '_', 'P' -> stringEscapeLength(s, escIndex);
+            default -> feFpEscapeLength(s, escIndex);
+        };
+    }
+
+    private static int csiEscapeLength(String s, int escIndex) {
+        var j = escIndex + 2;
+        while (j < s.length()) {
+            var ch = s.charAt(j);
+            if (isCsiFinalByte(ch)) {
+                return j - escIndex + 1;
+            }
+            if (!isCsiParameterByte(ch)) {
+                return 0;
+            }
+            j++;
+        }
+        return 0;
+    }
+
+    private static boolean isCsiParameterByte(char ch) {
+        return ch == ';' || ch == ':' || (ch >= '0' && ch <= '9');
+    }
+
+    private static boolean isCsiFinalByte(char ch) {
+        return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+    }
+
+    private static int stringEscapeLength(String s, int escIndex) {
+        for (var j = escIndex + 2; j < s.length(); j++) {
+            if (s.charAt(j) == '\u0007') {
+                return j - escIndex + 1;
+            }
+            if (s.charAt(j) == '\u001B' && j + 1 < s.length() && s.charAt(j + 1) == '\\') {
+                return j - escIndex + 2;
+            }
+        }
+        return 0;
+    }
+
+    private static int feFpEscapeLength(String s, int escIndex) {
+        var ch = s.charAt(escIndex + 1);
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private static String stripAsciiControlCharacters(String s) {
+        var out = new StringBuilder(s.length());
+        for (var i = 0; i < s.length(); i++) {
+            var ch = s.charAt(i);
+            if (ch >= 0x20 && ch != 0x7F) {
+                out.append(ch);
+            }
+        }
+        return out.toString();
     }
 
     private static int runSearch(SearchConfig config, PrintStream out, PrintStream err) {

@@ -39,12 +39,11 @@ class ShallowSkeletonHintsTest {
 
     @Test
     void dynamicDecodeType_usesInlineTupleAndTupleArrayShape() {
-        var shallow = List.of("tuple", "tuple[]");
         var inline = List.of("(address[],bytes[],uint256[])", "(uint256,address)[]");
         assertEquals("(address[],bytes[],uint256[])",
-            ShallowSkeletonHints.dynamicDecodeType(shallow, inline, 0, "tuple"));
+            ShallowSkeletonHints.dynamicDecodeType(inline, 0, "tuple"));
         assertEquals("(uint256,address)[]",
-            ShallowSkeletonHints.dynamicDecodeType(shallow, inline, 1, "tuple[]"));
+            ShallowSkeletonHints.dynamicDecodeType(inline, 1, "tuple[]"));
     }
 
     @Test
