@@ -16,9 +16,6 @@ import me.tibetty.sigbrute.util.HexUtil;
  */
 public final class ConfigEmitter {
 
-    private static final List<String> OPAQUE_TUPLE_FIELD_CANDIDATES =
-        List.of("address", "bytes*", "string", "uint*", "int*");
-
     private ConfigEmitter() {
     }
 
@@ -72,7 +69,7 @@ public final class ConfigEmitter {
         sb.append("#\n");
         if (header.shallow()) {
             sb.append("# Shallow skeleton: top-level inline tuples shown as opaque tuple / tuple[].\n");
-            sb.append("# Field rows under opaque tuples use broad wildcards (not Function: leaf types).\n");
+            sb.append("# Inner tuple fields use calldata heuristics only — expect [bytes, string], uint*, or [] ambiguities.\n");
         }
         sb.append("# Recovered prototype (first candidate per leaf — wildcards collapsed):\n");
         sb.append("#   ").append(recoveredPrototype(header)).append('\n');
@@ -156,12 +153,32 @@ public final class ConfigEmitter {
         var suffix = ShallowSkeletonHints.arraySuffixFromShallowType(shallowType);
         var keyForm = quoteTupleKey(suffix);
         sb.append("  - ").append(keyForm).append(':').append('\n');
-        var fieldCount = decoded instanceof DecodedArg.Tuple t ? t.fields().size() : 1;
         var childIndent = "      ";
-        for (var j = 0; j < fieldCount; j++) {
-            sb.append(childIndent).append("- [")
-                .append(joinCandidates(OPAQUE_TUPLE_FIELD_CANDIDATES)).append("]\n");
+        if (decoded instanceof DecodedArg.Tuple t) {
+            for (var j = 0; j < t.fields().size(); j++) {
+                var f = t.fields().get(j);
+                if (f.comment() != null && !f.comment().isBlank()) {
+                    sb.append(childIndent).append("# field ").append(j).append(": ")
+                        .append(f.comment()).append('\n');
+                }
+                appendShallowEmptyArrayAlternate(sb, f, childIndent);
+                emitArg(sb, f, childIndent);
+            }
+        } else {
+            emitArg(sb, decoded, childIndent);
         }
+    }
+
+    /** When heuristics pick an empty dynamic array, note the bytes/string encoding alternative. */
+    private static void appendShallowEmptyArrayAlternate(StringBuilder sb, DecodedArg field,
+        String indent) {
+        if (!(field instanceof DecodedArg.PrimArray pa) || !"[]".equals(pa.arraySuffix())) {
+            return;
+        }
+        if (pa.comment() == null || !pa.comment().contains("empty array")) {
+            return;
+        }
+        sb.append(indent).append("#   or [bytes, string] for empty length-prefixed payload\n");
     }
 
     /**

@@ -48,7 +48,7 @@ public final class HttpSignatureLookup implements SignatureLookup {
         var sourcifyTransient = false;
         try {
             fetchAndAdd(SOURCIFY + hex, seen);
-        } catch (LookupTransientException e) {
+        } catch (LookupException e) {
             // Sourcify returned a non-2xx; fall through to the 4byte.directory backup.
             sourcifyTransient = true;
         }
@@ -73,27 +73,14 @@ public final class HttpSignatureLookup implements SignatureLookup {
                 // treat as empty for this endpoint so the fallback URL is tried next.
                 // Callers interpret an empty result as "no known signatures" and continue
                 // to brute-force search, which is the correct safe-fallback behaviour.
-                throw new LookupTransientException(status);
+                throw new LookupException(status);
             }
-        } catch (LookupTransientException e) {
+        } catch (LookupException e) {
             throw e;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (IOException e) {
             // Network failure — caller treats as empty lookup
-        }
-    }
-
-    /**
-     * Thrown when a non-2xx HTTP response is received. Allows callers to distinguish a transient
-     * service error from a genuine empty-result response.
-     */
-    static final class LookupTransientException extends RuntimeException {
-        final int statusCode;
-
-        LookupTransientException(int statusCode) {
-            super("HTTP " + statusCode);
-            this.statusCode = statusCode;
         }
     }
 

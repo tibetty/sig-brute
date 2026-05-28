@@ -16,7 +16,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- `--shallow-skeleton` no longer passes `Function:` inline types into decode; opaque tuple fields in emitted YAML use broad wildcards, not inline leaf types
+- `--shallow-skeleton` no longer passes `Function:` inline types into decode; emitted tuple fields keep heuristic ambiguity (`[bytes, string]`, `[]`, `uint*`) rather than skeleton-narrowed single types
 - `DecodeMain` / `AbiDecoder`: empty lists replace `null` skeleton hints
 - README documents `--shallow-skeleton` and decode/search settings for tuple-heavy signatures
 

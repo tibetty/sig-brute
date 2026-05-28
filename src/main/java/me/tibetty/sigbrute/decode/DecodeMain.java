@@ -66,7 +66,8 @@ public final class DecodeMain {
                 err.println("decode warning: " + warning);
             }
 
-            var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), result, hint);
+            List<String> emitShallowTypes = parsed.shallowSkeleton() ? hint : List.of();
+            var yaml = ConfigEmitter.emit(input.selector(), input.methodName(), result, emitShallowTypes);
             if (parsed.validate()) {
                 DecodeConfigValidator.validate(input.selector(), yaml);
             }

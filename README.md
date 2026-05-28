@@ -141,7 +141,7 @@ java -jar build/libs/sig-brute-1.2.0-all.jar decode --strategy heuristic_search 
 | `--strategy greedy\|heuristic_search` | decode     | Body decode policy (default: `greedy`)                                                               |
 | `--validate`                          | decode     | Re-parse emitted YAML and verify selector before stdout                                              |
 | `--ignore-skeleton`                   | decode     | Ignore `Function:` header; decode calldata bytes only (corpus / stress runs)                         |
-| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level hints only; YAML uses wildcards inside tuples (no `Function:` inline types) |
+| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level only; inner fields from calldata heuristics (`[bytes, string]`, `[]`, `uint*`, …) |
 | `--wide`                              | decode     | With `heuristic_search`: union greedy + compact type candidates per slot (larger YAML)               |
 
 In find-first mode the search runs sequentially in type-frequency order so the most

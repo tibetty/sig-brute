@@ -89,14 +89,74 @@ class MainDispatchTest {
 
     @Test
     void sanitize_stripsOrphanedEscapeCharacter() {
-        // An ESC (\u001B) not followed by a CSI '[' must be removed by the C0 sweep
-        var input = "before\u001Bafter";
-        assertEquals("beforeafter", Main.sanitizeForTerminal(input));
+        // ESC (0x1B) not followed by a recognised sequence introducer is removed
+        // by the C0 control-character sweep. A digit after ESC is not a letter, so
+        // the Fe/Fp branch does not fire; only the bare ESC byte itself is stripped.
+        var input = "before\u001B9after";
+        assertEquals("before9after", Main.sanitizeForTerminal(input));
     }
 
     @Test
     void sanitize_leavesNormalSignatureUnchanged() {
         var sig = "transfer(address,uint256)";
         assertEquals(sig, Main.sanitizeForTerminal(sig));
+    }
+
+    // ── Extended ANSI coverage: OSC / DCS / PM / APC / Fe / Fp ───────────────
+
+    @Test
+    void sanitize_stripsOscSequenceWithBelTerminator() {
+        // OSC: ESC ] ... BEL  (e.g. set window title)
+        var input = "]0;window titleclean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsOscSequenceWithStTerminator() {
+        // OSC: ESC ] ... ST  (ST = ESC \)
+        var input = "]0;title\\clean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsDcsSequence() {
+        // DCS: ESC P ... ST
+        var input = "Pq#0\\clean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsPmSequence() {
+        // PM: ESC ^ ... ST
+        var input = "^payload\\clean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsApcSequence() {
+        // APC: ESC _ ... ST
+        var input = "_payload\\clean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsFeFullReset() {
+        // Fe: ESC c  (full terminal reset)
+        var input = "cclean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsEscM() {
+        // Fp: ESC M  (reverse index)
+        var input = "Mclean";
+        assertEquals("clean", Main.sanitizeForTerminal(input));
+    }
+
+    @Test
+    void sanitize_stripsOscWithPayloadSpaces() {
+        // OSC with spaces in payload, BEL-terminated
+        var input = "]2;complex title with spacesok";
+        assertEquals("ok", Main.sanitizeForTerminal(input));
     }
 }

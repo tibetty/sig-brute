@@ -6,6 +6,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.Pattern;
 import me.tibetty.sigbrute.decode.DecodeMain;
 import me.tibetty.sigbrute.lookup.HttpSignatureLookup;
 import me.tibetty.sigbrute.lookup.SignaturePreflight;
@@ -15,6 +16,22 @@ import me.tibetty.sigbrute.search.SearchEngine;
 import me.tibetty.sigbrute.search.SearchException;
 
 public class Main {
+
+    /**
+     * Compiled pattern for all recognised ANSI/VT escape sequences:
+     * <ul>
+     *   <li>CSI (ESC 0x5B ...): ESC [ ... final-byte</li>
+     *   <li>OSC/DCS/PM/APC (ESC 0x5D/0x50/0x5E/0x5F ...): lazy payload terminated by BEL or ST (ESC \)</li>
+     *   <li>Fe/Fp bare ESC+letter (e.g. ESC c = full reset, ESC M = reverse index)</li>
+     * </ul>
+     */
+    private static final Pattern ANSI_ESCAPE = Pattern.compile(
+        // CSI: ESC [ ... final byte
+        "\\x1B(?:\\[[;:\\d]*[A-Za-z]"
+        // OSC/DCS/PM/APC: ESC ] ^ _ P ... payload ... BEL or ST (ESC \)
+        + "|[\\]\\^_P](?:[^\\x07\\x1B]|\\x1B(?![\\\\]))*(?:\\x07|\\x1B\\\\)"
+        // Fe/Fp bare: ESC <letter> (e.g. ESC c, ESC M, ESC 7)
+        + "|[A-Za-z])");
 
     /** CLI entry point — calls {@link System#exit} with the status returned by {@link #run}. */
     public static void main(String[] args) throws IOException {
@@ -136,17 +153,18 @@ public class Main {
     }
 
     /**
-     * Strips ANSI CSI escape sequences and ASCII control characters from API-returned strings
+     * Strips all ANSI/VT escape sequences and ASCII control characters from API-returned strings
      * before printing to the terminal.
      *
      * <p>
      * Prevents terminal injection: a compromised or adversarial upstream API could embed escape
-     * sequences that overwrite terminal output or hide content (OWASP A03).
+     * sequences (CSI colour codes, OSC window-title changes, DCS/PM/APC payloads, Fe/Fp bare
+     * ESC+letter resets) that overwrite terminal output or hide content (OWASP A03).
      */
     static String sanitizeForTerminal(String s) {
-        // Strip ANSI CSI sequences: ESC [ ... <letter>  (e.g. colour codes, cursor moves)
-        var stripped = s.replaceAll("\\x1B\\[[;\\d]*[A-Za-z]", "");
-        // Strip remaining C0 control characters (0x00–0x1F) and DEL (0x7F)
+        // Strip all recognised ANSI/VT escape sequences
+        var stripped = ANSI_ESCAPE.matcher(s).replaceAll("");
+        // Strip remaining C0 control characters (0x00-0x1F) and DEL (0x7F)
         return stripped.replaceAll("[\\x00-\\x1F\\x7F]", "");
     }
 

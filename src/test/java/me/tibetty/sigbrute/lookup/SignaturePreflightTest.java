@@ -53,17 +53,17 @@ class SignaturePreflightTest {
     }
 
     @Test
-    void lookupThrowsRuntimeException_emitsDiagnosticNeverThrows() {
-        // Network or non-2xx failure must not propagate — only a fixed diagnostic must be emitted
+    void lookupThrowsLookupException_emitsDiagnosticNeverThrows() {
+        // Transport failure (non-2xx) must not propagate — only a fixed diagnostic must be emitted
         var result = SignaturePreflight.run(TRANSFER_SELECTOR,
-            selector -> { throw new RuntimeException("HTTP 429 — https://api.example.dev/v1/…"); },
+            selector -> { throw new LookupException(429); },
             false);
         assertFalse(result.hasMatches());
         assertEquals(1, result.diagnostics().size());
         // Fixed message must be used — never the raw exception message (which may expose the URL)
         assertTrue(result.diagnostics().get(0).contains("unavailable"),
             "Expected 'unavailable' in: " + result.diagnostics().get(0));
-        assertFalse(result.diagnostics().get(0).contains("HTTP 429"),
-            "Diagnostic must not expose the raw exception message or request URL");
+        assertFalse(result.diagnostics().get(0).contains("429"),
+            "Diagnostic must not expose the HTTP status code or raw exception message");
     }
 }

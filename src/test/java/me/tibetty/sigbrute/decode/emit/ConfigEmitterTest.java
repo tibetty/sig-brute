@@ -108,21 +108,22 @@ class ConfigEmitterTest {
     }
 
     @Test
-    void emitShallowTopLevel_usesOpaqueTuplePrototypeAndWildcardFields() {
+    void emitShallowTopLevel_keepsHeuristicAmbiguityInTupleFields() {
         var args = List.<DecodedArg>of(
             new DecodedArg.Tuple("",
-                List.of(new DecodedArg.Leaf(List.of("string"), "inline field 0"),
-                    new DecodedArg.Leaf(List.of("string"), "inline field 1")),
-                "dynamic inline tuple"),
+                List.of(new DecodedArg.Leaf(List.of("bytes", "string"), "3 bytes"),
+                    new DecodedArg.Leaf(List.of("bytes", "string"), "4 bytes")),
+                null),
             new DecodedArg.Leaf(List.of("uint256"), null),
             new DecodedArg.Tuple("",
-                List.of(new DecodedArg.Leaf(List.of("string"), null)), null));
+                List.of(new DecodedArg.PrimArray("[]", List.of("address", "uint*"), "empty array")),
+                null));
         var shallow = List.of("tuple", "uint256", "tuple");
         var yaml = ConfigEmitter.emit(new byte[]{0, 0, 0, 1}, "remove_liquidity", args, shallow);
         assertTrue(yaml.contains("# Shallow skeleton:"));
         assertTrue(yaml.contains("#   remove_liquidity(tuple,uint256,tuple)"));
-        assertTrue(yaml.contains("- [address, bytes*, string, uint*, int*]"));
-        assertFalse(yaml.contains("inline field 0"));
-        assertTrue(yaml.contains("- [uint256]"));
+        assertTrue(yaml.contains("- [bytes, string]"));
+        assertFalse(yaml.contains("type fixed by skeleton"));
+        assertTrue(yaml.contains("- \"[]\":"));
     }
 }

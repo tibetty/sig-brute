@@ -26,9 +26,9 @@ public final class SignaturePreflight {
         List<String> raw;
         try {
             raw = lookup.lookup(selector4);
-        } catch (RuntimeException e) {
-            // Use a fixed message; e.getMessage() may contain the full request URL, which
-            // could end up persisted in CI logs or shell history.
+        } catch (LookupException e) {
+            // Use a fixed message; LookupException.getMessage() carries the HTTP status code only,
+            // but a fixed string avoids any accidental leakage into CI logs or shell history.
             return new PreflightResult(List.of(),
                 List.of("lookup: signature database unavailable — skipping preflight"));
         }

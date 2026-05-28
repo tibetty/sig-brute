@@ -138,7 +138,7 @@ public final class SkeletonDecoder {
             var next = AbiCodec.nextDynOffsetAfter(dynOffsets, off, body.length);
             var tail = AbiCodec.slice(body, off, next - off);
             return new DecodedArg.Tuple("", ctx.decodeBody(tail),
-                "dynamic tuple at offset " + off);
+                "dynamic opaque tuple at offset " + off);
         }
 
         if (take > 1) {
