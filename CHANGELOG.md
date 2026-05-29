@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Local tuple corpus evaluation expanded to **300** fixtures; shallow skeleton structural match remains **100%** on both `greedy` and `heuristic_search` (see `TupleCorpusShallowSkeletonEvaluationTest`)
+
 ## [1.3.1] — 2026-05-28
 
 ### Changed
@@ -23,7 +27,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - `decode --shallow-skeleton`: inline `Function:` types drive layout and tuple/array **structure** inside opaque top-level bodies; YAML leaf candidates stay calldata heuristics (`uint*`, `[bytes, string]`, …)
-- Shallow skeleton structural match on the local tuple corpus (294 fixtures): **100%** for both `greedy` and `heuristic_search` (see `TupleCorpusShallowSkeletonEvaluationTest`)
+- Shallow skeleton structural match on the local tuple corpus (300 fixtures): **100%** for both `greedy` and `heuristic_search` (see `TupleCorpusShallowSkeletonEvaluationTest`)
 - Fixed `(bytes32[N])`-style singleton wrappers decode as one `T[N]` field, not N tuple leaves
 - `decode/ARCHITECTURE.md` and README document shallow-skeleton behavior
 

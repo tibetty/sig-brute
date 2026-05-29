@@ -92,7 +92,7 @@ Opaque top-level tuple decode (`SkeletonDecoder.decodeSkeletonTupleArg`) order:
 3. Static head span with inline field hints
 4. Heuristic span, then per-slot inference fallback
 
-Structural evaluation: `TupleCorpusShallowSkeletonEvaluationTest` (294 local corpus fixtures,
+Structural evaluation: `TupleCorpusShallowSkeletonEvaluationTest` (300 local corpus fixtures,
 optional under `scratch/tuple-calldata-corpus/`).
 
 ## Imports (public API)
