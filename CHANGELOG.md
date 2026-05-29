@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-05-28
+
+### Changed
+
+- Terminal output sanitizer: replace ANSI-stripping regex with a linear O(n) scanner (avoids ReDoS / Sonar backtracking warning)
+- `ShallowSkeletonHints.dynamicDecodeType`: drop unused `shallow` parameter; `wordFromDecodeComment` returns empty `byte[]` instead of `null`
+
 ## [1.3.0] — 2026-05-28
 
 ### Added
