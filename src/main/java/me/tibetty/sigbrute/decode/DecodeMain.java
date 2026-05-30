@@ -60,14 +60,12 @@ public final class DecodeMain {
             }
 
             var hint = resolveTopLevelHint(input, parsed);
-            // For shallow skeleton, pass the original (pre-abstraction) inline types so
-            // SkeletonLayout can determine exact tuple slot counts — without them, consecutive
-            // all-static tuples are split incorrectly because the heuristic scan has no offset
-            // pointer to stop at and reserves only 1 slot minimum for each later opaque tuple.
-            List<String> inlineHint = parsed.shallowSkeleton() && input.topLevelTypes() != null
-                ? input.topLevelTypes() : List.of();
+            var fullInline = input.topLevelTypes() != null ? input.topLevelTypes() : List.<String>of();
+            // Shallow: Function line drives top-level head layout only; tuple interiors from calldata.
+            List<String> layoutInline = parsed.shallowSkeleton() ? fullInline : List.<String>of();
+            List<String> interiorInline = parsed.shallowSkeleton() ? List.<String>of() : fullInline;
             var result = AbiDecoder.decodeResult(input.body(), hint, parsed.strategy(),
-                parsed.wideCandidates(), inlineHint);
+                parsed.wideCandidates(), layoutInline, interiorInline);
             for (var warning : result.warnings()) {
                 err.println("decode warning: " + warning);
             }

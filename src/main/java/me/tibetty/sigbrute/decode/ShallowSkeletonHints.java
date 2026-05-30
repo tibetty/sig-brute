@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 import me.tibetty.sigbrute.decode.abi.AbiTypeSyntax;
 import me.tibetty.sigbrute.decode.infer.TypeInferrer;
 import me.tibetty.sigbrute.decode.skeleton.SkeletonTypes;
+import me.tibetty.sigbrute.expander.TypeExpander;
 import me.tibetty.sigbrute.util.HexUtil;
 
 /**
@@ -18,8 +19,8 @@ import me.tibetty.sigbrute.util.HexUtil;
  * <ul>
  *   <li><b>Layout</b> — head-slot demand and tuple span resolution ({@link #layoutHints})
  *   <li><b>Structure decode</b> — tuple nesting and array suffixes inside opaque payloads
- *       ({@link #dynamicDecodeType}, {@link #opaqueTupleFieldHints}); per-leaf type candidates
- *       in YAML still come from calldata heuristics, not pinned skeleton types
+ *       ({@link #dynamicDecodeType}, {@link #opaqueTupleFieldHints}) when interior inline hints
+ *       are supplied; {@code decode --shallow-skeleton} passes none (calldata heuristics only)
  * </ul>
  */
 public final class ShallowSkeletonHints {
@@ -83,6 +84,27 @@ public final class ShallowSkeletonHints {
         var parts = AbiTypeSyntax.splitOutermostArraySuffix(shallowType);
         var base = parts != null ? parts.base() : shallowType;
         return OPAQUE_TUPLE.equals(base);
+    }
+
+    /**
+     * True when layout uses only explorer-style opaque names ({@code tuple}, {@code tuple[]},
+     * primitives, …) with no inline {@code (T,...)} types — skeleton-only decode.
+     *
+     * <p>Enables {@link me.tibetty.sigbrute.decode.skeleton.SkeletonOnlyStaticTuplePartitioner},
+     * {@link me.tibetty.sigbrute.decode.skeleton.SkeletonArrayDecoder} opaque {@code tuple[]}
+     * routing ({@link me.tibetty.sigbrute.decode.skeleton.SkeletonTypeKind#OPAQUE_TUPLE_ARRAY}),
+     * and score-gated greedy tuple-body heuristics.
+     */
+    public static boolean isSkeletonOnlyLayout(List<String> layoutHint) {
+        if (layoutHint == null || layoutHint.isEmpty()) {
+            return false;
+        }
+        for (var type : layoutHint) {
+            if (SkeletonTypes.isInlineTuple(type)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Array suffix from a shallow type, e.g. {@code tuple[]} → {@code []}. */
@@ -153,7 +175,8 @@ public final class ShallowSkeletonHints {
     /**
      * Re-infers leaf type candidates from calldata words referenced in decode comments. Used when
      * emitting shallow YAML so inner fields stay heuristic ({@code uint*}, …) while tuple nesting
-     * still comes from structure decode.
+     * still comes from structure decode. Skeleton-pinned concrete types (e.g. {@code bytes32} from
+     * the {@code Function:} line) are kept when heuristics would not expand to cover them.
      */
     public static DecodedArg widenOpaqueRegionForEmit(DecodedArg arg) {
         if (arg instanceof DecodedArg.Leaf leaf) {
@@ -178,7 +201,38 @@ public final class ShallowSkeletonHints {
         if (inferred.equals(leaf.candidates())) {
             return leaf;
         }
-        return new DecodedArg.Leaf(inferred, leaf.comment());
+        return new DecodedArg.Leaf(mergeSkeletonWithInferred(leaf.candidates(), inferred), leaf.comment());
+    }
+
+    /**
+     * Heuristic candidates first; prepend any concrete skeleton-pinned type not already covered by
+     * wildcard expansion (so {@code bytes32} is not dropped when calldata looks like a small uint).
+     */
+    static List<String> mergeSkeletonWithInferred(List<String> skeleton, List<String> inferred) {
+        var merged = new ArrayList<>(inferred);
+        for (var pin : skeleton) {
+            if (isConcretePinnedType(pin) && !isCoveredByCandidatePatterns(pin, inferred)) {
+                merged.add(0, pin);
+            }
+        }
+        return merged.stream().distinct().toList();
+    }
+
+    private static boolean isConcretePinnedType(String type) {
+        return !type.contains("*") && !type.contains("+");
+    }
+
+    private static boolean isCoveredByCandidatePatterns(String concrete, List<String> patterns) {
+        for (var pattern : patterns) {
+            if (pattern.equals(concrete)) {
+                return true;
+            }
+            if ((pattern.contains("*") || pattern.contains("+"))
+                    && TypeExpander.expand(pattern).contains(concrete)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static byte[] wordFromDecodeComment(String comment) {

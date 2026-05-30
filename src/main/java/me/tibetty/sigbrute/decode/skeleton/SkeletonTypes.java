@@ -30,6 +30,9 @@ public final class SkeletonTypes {
             if (isInlineTuple(arrayParts.base())) {
                 return SkeletonTypeKind.INLINE_TUPLE_ARRAY;
             }
+            if (TUPLE.equals(arrayParts.base())) {
+                return SkeletonTypeKind.OPAQUE_TUPLE_ARRAY;
+            }
             return SkeletonTypeKind.DYNAMIC_PRIM_ARRAY;
         }
         if (AbiTypeSyntax.isDynamicHint(type)) {

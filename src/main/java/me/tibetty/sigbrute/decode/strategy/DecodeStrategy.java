@@ -32,9 +32,10 @@ public enum DecodeStrategy {
     GREEDY("greedy") {
         @Override
         List<DecodedArg> decodeArgs(DecodeContext ctx, byte[] body, List<String> topLevelHint,
-            List<String> inlineTopLevelHint) {
+            List<String> layoutInlineHint, List<String> interiorInlineHint) {
             if (!topLevelHint.isEmpty()) {
-                return SkeletonDecoder.decode(ctx, body, topLevelHint, inlineTopLevelHint);
+                return SkeletonDecoder.decode(ctx, body, topLevelHint, layoutInlineHint,
+                    interiorInlineHint);
             }
             return GreedyBodyDecoder.decode(ctx, body);
         }
@@ -43,9 +44,10 @@ public enum DecodeStrategy {
     HEURISTIC_SEARCH("heuristic_search") {
         @Override
         List<DecodedArg> decodeArgs(DecodeContext ctx, byte[] body, List<String> topLevelHint,
-            List<String> inlineTopLevelHint) {
+            List<String> layoutInlineHint, List<String> interiorInlineHint) {
             if (!topLevelHint.isEmpty()) {
-                return SkeletonDecoder.decode(ctx, body, topLevelHint, inlineTopLevelHint);
+                return SkeletonDecoder.decode(ctx, body, topLevelHint, layoutInlineHint,
+                    interiorInlineHint);
             }
             return SearchBodyDecoder.decode(ctx, body);
         }
@@ -63,11 +65,11 @@ public enum DecodeStrategy {
     }
 
     abstract List<DecodedArg> decodeArgs(DecodeContext ctx, byte[] body, List<String> topLevelHint,
-        List<String> inlineTopLevelHint);
+        List<String> layoutInlineHint, List<String> interiorInlineHint);
 
     public DecodeResult decode(DecodeContext ctx, byte[] body, List<String> topLevelHint,
-        List<String> inlineTopLevelHint) {
-        var args = decodeArgs(ctx, body, topLevelHint, inlineTopLevelHint);
+        List<String> layoutInlineHint, List<String> interiorInlineHint) {
+        var args = decodeArgs(ctx, body, topLevelHint, layoutInlineHint, interiorInlineHint);
         return ctx.toResult(args, this);
     }
 
@@ -112,9 +114,16 @@ public enum DecodeStrategy {
     }
 
     public static DecodeResult decode(byte[] body, List<String> topLevelHint,
-        DecodeStrategy strategy, boolean wideCandidates, List<String> inlineTopLevelHint) {
+        DecodeStrategy strategy, boolean wideCandidates, List<String> layoutInlineHint,
+        List<String> interiorInlineHint) {
         var ctx = newContext(strategy, wideCandidates);
-        return strategy.decode(ctx, body, topLevelHint, inlineTopLevelHint);
+        return strategy.decode(ctx, body, topLevelHint, layoutInlineHint, interiorInlineHint);
+    }
+
+    public static DecodeResult decode(byte[] body, List<String> topLevelHint,
+        DecodeStrategy strategy, boolean wideCandidates, List<String> inlineTopLevelHint) {
+        return decode(body, topLevelHint, strategy, wideCandidates, inlineTopLevelHint,
+            inlineTopLevelHint);
     }
 
     /**

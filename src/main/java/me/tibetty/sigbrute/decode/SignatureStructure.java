@@ -37,6 +37,53 @@ public final class SignatureStructure {
         return nodesEqual(this.topLevel, other.topLevel);
     }
 
+    /**
+     * Top-level shape only: arg count, leaf vs tuple at each top-level slot, and array suffixes.
+     * Tuple interiors are not compared — models shallow skeleton when inner field types are unknown.
+     */
+    public boolean topLevelShapeEquals(SignatureStructure other) {
+        return topLevelNodesEqual(
+            topLevelShapeOnly(this).topLevel,
+            topLevelShapeOnly(other).topLevel);
+    }
+
+    public static SignatureStructure topLevelShapeFromSignature(String textSignature) {
+        return topLevelShapeOnly(parseSignature(textSignature));
+    }
+
+    public static SignatureStructure topLevelShapeFromDecodedArgs(List<DecodedArg> args) {
+        return topLevelShapeOnly(fromDecodedArgs(args));
+    }
+
+    private static SignatureStructure topLevelShapeOnly(SignatureStructure structure) {
+        return new SignatureStructure(structure.topLevel().stream()
+            .map(SignatureStructure::opaqueTupleNode)
+            .toList());
+    }
+
+    private static Node opaqueTupleNode(Node node) {
+        if (node.kind() == Node.Kind.TUPLE) {
+            return new Node(Node.Kind.TUPLE, node.arraySuffix(), List.of());
+        }
+        return new Node(Node.Kind.LEAF, node.arraySuffix(), List.of());
+    }
+
+    private static boolean topLevelNodesEqual(List<Node> a, List<Node> b) {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (var i = 0; i < a.size(); i++) {
+            if (!topLevelNodeEqual(a.get(i), b.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean topLevelNodeEqual(Node a, Node b) {
+        return a.kind() == b.kind() && a.arraySuffix().equals(b.arraySuffix());
+    }
+
     public List<Node> topLevel() {
         return topLevel;
     }

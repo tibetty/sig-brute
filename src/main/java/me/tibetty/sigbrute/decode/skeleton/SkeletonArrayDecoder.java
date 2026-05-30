@@ -297,7 +297,9 @@ public final class SkeletonArrayDecoder {
     }
 
     /**
-     * Decodes {@code tuple[]} when the skeleton only names {@code tuple} (no inline field types).
+     * Skeleton-only: decodes {@code tuple[]} / {@code tuple[][]} when hints name opaque
+     * {@code tuple} only (no inline {@code (T,...)} field types). Routed via
+     * {@link SkeletonTypeKind#OPAQUE_TUPLE_ARRAY}.
      */
     static DecodedArg decodeOpaqueTupleArray(DecodeContext ctx, byte[] tail, int count) {
         if (count == 0) {
@@ -376,23 +378,63 @@ public final class SkeletonArrayDecoder {
         return best.isEmpty() ? perElement.get(0) : best;
     }
 
-    /**
-     * Picks the richest element shape among {@code tuple[]} elements (field count), since
-     * element[0] alone is often a truncated or atypical row.
-     */
     private static List<DecodedArg> bestOpaqueTupleArrayElementShape(DecodeContext ctx, byte[] tail,
         int count, int[] elemOffsets) {
-        List<DecodedArg> best = List.of();
+        var shapes = new ArrayList<List<DecodedArg>>(count);
         for (var i = 0; i < count; i++) {
             var from = 32 + elemOffsets[i];
             var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : tail.length;
-            var fields = tupleFields(GreedyBodyDecoder.decodeTupleElementBody(ctx,
-                AbiCodec.slice(tail, from, to - from)));
-            if (fields.size() > best.size()) {
-                best = fields;
+            shapes.add(tupleFields(GreedyBodyDecoder.decodeTupleElementBody(ctx,
+                AbiCodec.slice(tail, from, to - from))));
+        }
+        return pickMostConsistentTupleShape(shapes);
+    }
+
+    private static List<DecodedArg> pickMostConsistentTupleShape(List<List<DecodedArg>> shapes) {
+        if (shapes.isEmpty()) {
+            return List.of();
+        }
+        List<DecodedArg> best = shapes.get(0);
+        var bestVotes = -1;
+        for (var candidate : shapes) {
+            var votes = 0;
+            for (var other : shapes) {
+                if (tupleShapeMatches(candidate, other)) {
+                    votes++;
+                }
+            }
+            if (votes > bestVotes || (votes == bestVotes && candidate.size() > best.size())) {
+                bestVotes = votes;
+                best = candidate;
             }
         }
         return best;
+    }
+
+    private static boolean tupleShapeMatches(List<DecodedArg> a, List<DecodedArg> b) {
+        if (a.size() != b.size()) {
+            return false;
+        }
+        for (var i = 0; i < a.size(); i++) {
+            if (!tupleFieldShapeMatches(a.get(i), b.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean tupleFieldShapeMatches(DecodedArg left, DecodedArg right) {
+        if (left instanceof DecodedArg.Leaf && right instanceof DecodedArg.Leaf) {
+            return true;
+        }
+        if (left instanceof DecodedArg.PrimArray lp && right instanceof DecodedArg.PrimArray rp) {
+            return lp.arraySuffix().equals(rp.arraySuffix());
+        }
+        if (left instanceof DecodedArg.Tuple lt && right instanceof DecodedArg.Tuple rt) {
+            return lt.arraySuffix().equals(rt.arraySuffix())
+                && tupleShapeMatches(lt.fields(), rt.fields());
+        }
+        return false;
     }
 
     /**

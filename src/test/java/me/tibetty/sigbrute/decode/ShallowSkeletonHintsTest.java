@@ -1,6 +1,7 @@
 package me.tibetty.sigbrute.decode;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -57,6 +58,30 @@ class ShallowSkeletonHintsTest {
     }
 
     @Test
+    void widenOpaqueRegionForEmit_keepsSkeletonBytes32WhenHeuristicsOmitIt() {
+        var leaf = new DecodedArg.Leaf(List.of("bytes32"),
+            "small uint 0x0000000000000000000000000000000000000000000000000000000000000001");
+        var widened = (DecodedArg.Leaf) ShallowSkeletonHints.widenOpaqueRegionForEmit(leaf);
+        assertEquals("bytes32", widened.candidates().get(0));
+        assertTrue(widened.candidates().contains("uint*"));
+    }
+
+    @Test
+    void mergeSkeletonWithInferred_uint256CoveredByUint16Plus() {
+        var merged = ShallowSkeletonHints.mergeSkeletonWithInferred(
+            List.of("uint256"), List.of("uint16+"));
+        assertEquals(List.of("uint16+"), merged);
+    }
+
+    @Test
+    void mergeSkeletonWithInferred_bytes32PrependedWhenNotCovered() {
+        var merged = ShallowSkeletonHints.mergeSkeletonWithInferred(
+            List.of("bytes32"), List.of("uint*", "int*", "bool"));
+        assertEquals("bytes32", merged.get(0));
+        assertTrue(merged.contains("uint*"));
+    }
+
+    @Test
     void singletonFixedArrayField_detectsParenthesizedFixedArray() {
         assertEquals("bytes32[67]",
             ShallowSkeletonHints.singletonFixedArrayField(List.of("bytes32[67]")));
@@ -68,6 +93,19 @@ class ShallowSkeletonHintsTest {
     void opaqueTupleFieldHints_fromInlineTopLevelTuple() {
         var inline = List.of("(address[],bytes32[][])");
         assertEquals(2, ShallowSkeletonHints.opaqueTupleFieldHints(inline, 0).size());
+    }
+
+    @Test
+    void isSkeletonOnlyLayout_trueForOpaqueTupleAndTupleArray() {
+        assertTrue(ShallowSkeletonHints.isSkeletonOnlyLayout(
+            List.of("address", "tuple", "tuple[]", "bytes")));
+        assertTrue(ShallowSkeletonHints.isSkeletonOnlyLayout(List.of("tuple[][]")));
+    }
+
+    @Test
+    void isSkeletonOnlyLayout_falseWhenInlineTuplePresent() {
+        assertFalse(ShallowSkeletonHints.isSkeletonOnlyLayout(
+            List.of("tuple", "(uint256,address)")));
     }
 
     @Test

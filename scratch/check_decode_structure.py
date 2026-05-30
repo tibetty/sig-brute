@@ -125,6 +125,34 @@ def _print_mode_summary(label: str, data: dict) -> None:
     )
 
 
+def _print_shallow_report(data: dict) -> None:
+    total = data.get("total", 0)
+    for mode_key, mode_label in (
+        ("with_function_inline", "shallow + Function inline"),
+        ("opaque_only", "shallow opaque only"),
+    ):
+        mode = data.get(mode_key)
+        if not mode:
+            continue
+        nested = mode.get("nested", mode)
+        top = mode.get("top_level_only", {})
+        for block_key, block_label in (
+            ("nested", "full nesting"),
+            ("top_level_only", "top-level only (tuple interiors ignored)"),
+        ):
+            block = mode.get(block_key, nested if block_key == "nested" else top)
+            if not block:
+                continue
+            greedy = block.get("greedy_match", 0)
+            search = block.get("heuristic_search_match", greedy)
+            pct = (100.0 * greedy / total) if total else 0.0
+            print(
+                f"  {mode_label} / {block_label}: greedy {greedy}/{total} ({pct:.1f}%), "
+                f"heuristic_search {search}/{total}, "
+                f"mismatches {block.get('mismatch', 0)}, errors {block.get('error', 0)}"
+            )
+
+
 def _run_gradle_corpus_test(root: Path, class_name: str) -> int:
     _prepare_gradle_test(root)
     return subprocess.run(
@@ -143,7 +171,8 @@ def run_shallow_mode(root: Path, corpus: Path) -> int:
     )
     report = corpus / "structure-check-shallow.json"
     if report.exists():
-        _print_mode_summary("shallow skeleton", _load_report(report))
+        data = _load_report(report)
+        _print_shallow_report(data)
         print(f"Report: {report}")
     return code
 
@@ -196,10 +225,24 @@ def run_benchmark_mode(root: Path, corpus: Path) -> int:
         data = _load_report(report_path)
         data["elapsed_sec"] = round(time.perf_counter() - step_start, 3)
         total = data.get("total", 0)
-        greedy = data.get("greedy_match", 0)
+        inline = data.get("with_function_inline", data)
+        nested = inline.get("nested", inline)
+        greedy = nested.get("greedy_match", data.get("greedy_match", 0))
         data["greedy_pct"] = round(100.0 * greedy / total, 2) if total else 0.0
+        opaque = data.get("opaque_only", {})
+        opaque_nested = opaque.get("nested", opaque)
+        opaque_greedy = opaque_nested.get("greedy_match", 0)
+        data["opaque_only_greedy_pct"] = round(100.0 * opaque_greedy / total, 2) if total else 0.0
+        opaque_top = opaque.get("top_level_only", {})
+        opaque_top_greedy = opaque_top.get("greedy_match", 0)
+        data["opaque_only_top_level_greedy_pct"] = (
+            round(100.0 * opaque_top_greedy / total, 2) if total else 0.0
+        )
         results[label] = data
-        _print_mode_summary(label, data)
+        if label == "shallow_skeleton":
+            _print_shallow_report(data)
+        else:
+            _print_mode_summary(label, data)
 
     bench = {
         "total_fixtures": results.get("no_skeleton", {}).get("total", 0),
@@ -303,6 +346,96 @@ def _ensure_decode_jar(root: Path) -> Path:
     return jar[0]
 
 
+def _decode_calldata_fixture(jar: Path, path: Path, strategy: str | None = None) -> subprocess.CompletedProcess[str]:
+    cmd = ["java", "-jar", str(jar), "decode"]
+    if strategy is not None:
+        cmd.extend(["--strategy", strategy])
+    cmd.append(str(path))
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+
+def _prototype_from_decode_stdout(stdout: str) -> str:
+    for ln in stdout.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("#   ") and "(" in ln:
+            return stripped[4:].strip()
+    raise ValueError("prototype line not found in decode output")
+
+
+@dataclass(frozen=True)
+class _SkeletonFixtureResult:
+    status: str
+    detail: str | None = None
+
+
+def _check_skeleton_fixture(
+    jar: Path, path: Path, text_signature: str, strategy: str
+) -> _SkeletonFixtureResult:
+    out = _decode_calldata_fixture(jar, path, strategy)
+    if out.returncode != 0:
+        return _SkeletonFixtureResult("error", out.stderr.strip() or f"exit {out.returncode}")
+    try:
+        proto = _prototype_from_decode_stdout(out.stdout)
+        known = parse_signature(text_signature).shape()
+        got = parse_prototype_line(proto).shape()
+        if known == got:
+            return _SkeletonFixtureResult("ok")
+        return _SkeletonFixtureResult("mismatch", "prototype mismatch")
+    except Exception as e:
+        return _SkeletonFixtureResult("error", str(e))
+
+
+def _evaluate_skeleton_strategy(
+    manifest: list, jar: Path, corpus: Path, strategy: str
+) -> dict:
+    ok = mismatches = errors = 0
+    mismatch_lines: list[str] = []
+    error_lines: list[str] = []
+    t0 = time.perf_counter()
+    for entry in manifest:
+        path = corpus / entry["file"]
+        label = Path(entry["file"]).name
+        result = _check_skeleton_fixture(jar, path, entry["text_signature"], strategy)
+        if result.status == "ok":
+            ok += 1
+        elif result.status == "mismatch":
+            mismatches += 1
+            mismatch_lines.append(f"{label}: {result.detail}")
+        else:
+            errors += 1
+            error_lines.append(f"{label}: {result.detail}")
+
+    elapsed = time.perf_counter() - t0
+    total = len(manifest)
+    return {
+        "total": total,
+        "match": ok,
+        "mismatch": mismatches,
+        "error": errors,
+        "elapsed_sec": round(elapsed, 3),
+        "avg_ms_per_file": round((elapsed / total) * 1000, 2) if total else 0.0,
+        "mismatches": mismatch_lines,
+        "errors": error_lines,
+    }
+
+
+def _print_skeleton_strategy_summary(strategy: str, stats: dict) -> None:
+    total = stats["total"]
+    elapsed = stats["elapsed_sec"]
+    if total:
+        timing = f"{elapsed:.2f}s total ({(elapsed / total * 1000):.1f} ms/file)"
+    else:
+        timing = f"{elapsed:.2f}s total"
+    print(
+        f"Skeleton structure check [{strategy}]: {stats['match']}/{total} match, "
+        f"{stats['mismatch']} mismatch, {stats['error']} error, {timing}"
+    )
+
+
+def _skeleton_stats_clean(stats: dict[str, dict]) -> bool:
+    return all(s["mismatch"] == 0 and s["error"] == 0 for s in stats.values())
+
+
 def run_skeleton_mode(root: Path, corpus: Path) -> int:
     if _missing_manifest_files(corpus):
         print(
@@ -315,64 +448,16 @@ def run_skeleton_mode(root: Path, corpus: Path) -> int:
 
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     jar = _ensure_decode_jar(root)
-    stats: dict[str, dict] = {}
-    for strategy in ("greedy", "heuristic_search"):
-        ok = mismatches = errors = 0
-        mismatch_lines: list[str] = []
-        error_lines: list[str] = []
-        t0 = time.perf_counter()
-        for entry in manifest:
-            path = corpus / entry["file"]
-            label = Path(entry["file"]).name
-            out = subprocess.run(
-                ["java", "-jar", str(jar), "decode", "--strategy", strategy, str(path)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if out.returncode != 0:
-                errors += 1
-                error_lines.append(f"{label}: {out.stderr.strip() or f'exit {out.returncode}'}")
-                continue
-            try:
-                proto = next(
-                    ln[4:].strip()
-                    for ln in out.stdout.splitlines()
-                    if ln.strip().startswith("#   ") and "(" in ln
-                )
-                known = parse_signature(entry["text_signature"]).shape()
-                got = parse_prototype_line(proto).shape()
-                if known == got:
-                    ok += 1
-                else:
-                    mismatches += 1
-                    mismatch_lines.append(f"{label}: prototype mismatch")
-            except Exception as e:
-                errors += 1
-                error_lines.append(f"{label}: {e}")
-
-        elapsed = time.perf_counter() - t0
-        total = len(manifest)
-        stats[strategy] = {
-            "total": total,
-            "match": ok,
-            "mismatch": mismatches,
-            "error": errors,
-            "elapsed_sec": round(elapsed, 3),
-            "avg_ms_per_file": round((elapsed / total) * 1000, 2) if total else 0.0,
-            "mismatches": mismatch_lines,
-            "errors": error_lines,
-        }
-        print(
-            f"Skeleton structure check [{strategy}]: {ok}/{total} match, "
-            f"{mismatches} mismatch, {errors} error, {elapsed:.2f}s total "
-            f"({(elapsed / total * 1000):.1f} ms/file)"
-        )
+    strategies = ("greedy", "heuristic_search")
+    stats = {strategy: _evaluate_skeleton_strategy(manifest, jar, corpus, strategy)
+             for strategy in strategies}
+    for strategy in strategies:
+        _print_skeleton_strategy_summary(strategy, stats[strategy])
 
     report = corpus / "structure-check-skeleton.json"
     report.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
     print(f"Report: {report}")
-    return 0 if all(stats[s]["mismatch"] == 0 and stats[s]["error"] == 0 for s in stats) else 1
+    return 0 if _skeleton_stats_clean(stats) else 1
 
 
 def main() -> int:

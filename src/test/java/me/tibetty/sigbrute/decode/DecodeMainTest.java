@@ -37,6 +37,27 @@ class DecodeMainTest {
     // ── success paths ─────────────────────────────────────────────────────────
 
     @Test
+    void shallowSkeleton_doesNotPinInteriorTypesFromFunction(@TempDir Path tempDir)
+        throws IOException {
+        var calldata = """
+            Function: forwardEth(bytes,(uint256,address))
+
+            MethodID: 0xfcaabe3b
+            [0]: 0000000000000000000000000000000000000000000000000000000000000060
+            [1]: 000000000000000000000000000000000000000000000000000016bcc41e9000
+            [2]: 00000000000000000000000082d9a407f99a95db4671e7021d625cbd0787a407
+            """;
+        var path = tempDir.resolve("inline_tuple.calldata");
+        Files.writeString(path, calldata, StandardCharsets.UTF_8);
+        ByteArrayOutputStream out = captureOut();
+        assertEquals(0,
+            DecodeMain.decode(new String[]{"--shallow-skeleton", path.toString()}, ps(out),
+                DEV_NULL));
+        assertFalse(str(out).contains("type fixed by skeleton"),
+            "shallow skeleton must not pin inner tuple field types from Function line");
+    }
+
+    @Test
     void shallowSkeleton_abstractsTopLevelHint_keepsInlineForLayout(@TempDir Path tempDir)
         throws IOException {
         var calldata = """

@@ -39,8 +39,9 @@ public record CalldataInput(byte[] selector, byte[] body, String methodName,
      * {@code tuple[]} instead of inline {@code (T,...)} forms from a full 4byte signature.
      *
      * <p>
-     * {@link #inlineTopLevelTypes} is left null; shallow decode uses only opaque top-level hints
-     * ({@code tuple} / {@code tuple[]}) and heuristics — not the inline forms from {@code Function:}.
+     * {@link #inlineTopLevelTypes} is left null; shallow decode abstracts top-level types to
+     * {@code tuple} / {@code tuple[]} while {@code DecodeMain} still uses the original
+     * {@code Function:} types for head layout only.
      */
     public CalldataInput withShallowSkeleton() {
         return new CalldataInput(selector, body, methodName,

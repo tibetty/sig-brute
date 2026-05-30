@@ -215,15 +215,40 @@ public final class SkeletonLayout {
 
     static void absorbRemainingSlack(byte[] body, List<String> hint, int[] minSlots,
         int[] tupleSlots, HeadSection head) {
+        absorbRemainingSlack(body, hint, minSlots, tupleSlots, head, false);
+    }
+
+    /**
+     * Assigns leftover head slots to one static opaque {@code tuple}. When {@code preferLastTarget}
+     * is true (skeleton-only layout), slack goes to the last qualifying tuple, not the first.
+     */
+    static void absorbRemainingSlack(byte[] body, List<String> hint, int[] minSlots,
+        int[] tupleSlots, HeadSection head, boolean preferLastTarget) {
         var slack = head.totalSlots() - headSlotCount(hint, minSlots, tupleSlots);
         if (slack <= 0) {
             return;
         }
 
-        var target = findStaticTupleSlackTarget(hint, body, minSlots, tupleSlots, head);
+        var target = preferLastTarget
+            ? findStaticTupleSlackTargetFromEnd(hint, body, minSlots, tupleSlots, head)
+            : findStaticTupleSlackTarget(hint, body, minSlots, tupleSlots, head);
         if (target >= 0) {
             tupleSlots[target] += slack;
         }
+    }
+
+    static int findStaticTupleSlackTargetFromEnd(List<String> hint, byte[] body, int[] minSlots,
+        int[] tupleSlots, HeadSection head) {
+        for (var i = hint.size() - 1; i >= 0; i--) {
+            if (SkeletonTypes.isTupleHint(hint.get(i)) && tupleSlots[i] == 1) {
+                var slotIndex = slotCursorBeforeIndex(hint, i, minSlots, tupleSlots);
+                var headBound = headBoundForSlot(slotIndex, head.headSize());
+                if (!AbiCodec.looksLikeOffsetAt(body, slotIndex, body.length, headBound)) {
+                    return i;
+                }
+            }
+        }
+        return -1;
     }
 
     static int findStaticTupleSlackTarget(List<String> hint, byte[] body, int[] minSlots,

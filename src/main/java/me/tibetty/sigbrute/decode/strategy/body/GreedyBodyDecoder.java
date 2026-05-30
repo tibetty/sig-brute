@@ -45,6 +45,16 @@ public final class GreedyBodyDecoder {
      * bare leaves where a dynamic array or tuple was expected). Used for opaque tuple interiors.
      */
     public static List<DecodedArg> decodeBestHeadTailTuple(DecodeContext ctx, byte[] body) {
+        return decodeBestHeadTailTuple(ctx, body, false);
+    }
+
+    /** Opaque skeleton-only tuple interior decode (score-gated static run merge). */
+    public static List<DecodedArg> decodeBestHeadTailOpaqueTuple(DecodeContext ctx, byte[] body) {
+        return decodeBestHeadTailTuple(ctx, body, true);
+    }
+
+    private static List<DecodedArg> decodeBestHeadTailTuple(DecodeContext ctx, byte[] body,
+        boolean mergeStaticRuns) {
         var sizes = headSizeCandidates(body);
         if (sizes.isEmpty()) {
             return decodeFlatStaticWords(ctx, body, body.length / 32);
@@ -55,7 +65,11 @@ public final class GreedyBodyDecoder {
             var numFields = headSize / 32;
             var dynSlots = DynamicHeadSlots.collect(body, numFields, headSize);
             var fields = decodeHeadTailTuple(ctx, body, headSize);
-            var score = scoreHeadTailParse(body, headSize, fields, dynSlots);
+            if (mergeStaticRuns) {
+                fields = maybeMergeStaticHeadRuns(ctx, body, fields, headSize, dynSlots);
+                fields = refineMisclassifiedDynamicHeadFields(ctx, body, headSize, fields, dynSlots);
+            }
+            var score = scoreHeadTailParse(body, headSize, fields, dynSlots, mergeStaticRuns);
             if (score > bestScore) {
                 bestScore = score;
                 bestFields = fields;
@@ -64,15 +78,201 @@ public final class GreedyBodyDecoder {
         return bestFields != null ? bestFields : List.of();
     }
 
-    static int scoreHeadTailParse(byte[] body, int headSize, List<DecodedArg> fields,
-        List<int[]> dynSlots) {
-        var score = 500 + dynSlots.size() * 20 - (body.length / 32 - headSize / 32);
+    /** Score-gated merge of consecutive static head leaves into one tuple (opaque skeleton paths). */
+    static List<DecodedArg> maybeMergeStaticHeadRuns(DecodeContext ctx, byte[] body, List<DecodedArg> fields,
+        int headSize, List<int[]> dynSlots) {
+        var merged = mergeStaticHeadRuns(ctx, body, fields, headSize, dynSlots);
+        if (scoreFieldList(merged) > scoreFieldList(fields)) {
+            return merged;
+        }
+        return fields;
+    }
+
+    static int scoreFieldList(List<DecodedArg> fields) {
+        var score = fields.size() * 10;
         for (var field : fields) {
-            if (field instanceof DecodedArg.Leaf) {
-                score -= 50;
+            if (field instanceof DecodedArg.Tuple) {
+                score += 40;
+            } else if (field instanceof DecodedArg.PrimArray) {
+                score += 35;
             }
         }
         return score;
+    }
+
+    static List<DecodedArg> mergeStaticHeadRuns(DecodeContext ctx, byte[] body, List<DecodedArg> fields,
+        int headSize, List<int[]> dynSlots) {
+        var numHeadFields = headSize / 32;
+        if (numHeadFields < 2 || fields.size() < 2) {
+            return fields;
+        }
+        var dynamicIndices = markDynamicHeadIndices(dynSlots, numHeadFields);
+        var out = new ArrayList<DecodedArg>(fields.size());
+        var headIndex = 0;
+        while (headIndex < fields.size()) {
+            if (passthroughHeadField(headIndex, numHeadFields, dynamicIndices, fields)) {
+                out.add(fields.get(headIndex));
+                headIndex++;
+            } else {
+                var runStart = headIndex;
+                headIndex = endOfStaticLeafRun(headIndex, numHeadFields, dynamicIndices, fields);
+                var merged = tryMergeStaticHeadRun(ctx, body, runStart, headIndex);
+                if (merged != null) {
+                    out.add(merged);
+                } else {
+                    copyHeadFieldRange(fields, out, runStart, headIndex);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean[] markDynamicHeadIndices(List<int[]> dynSlots, int numHeadFields) {
+        var dynamicIndices = new boolean[numHeadFields];
+        for (var slot : dynSlots) {
+            if (slot[0] >= 0 && slot[0] < numHeadFields) {
+                dynamicIndices[slot[0]] = true;
+            }
+        }
+        return dynamicIndices;
+    }
+
+    private static boolean passthroughHeadField(int headIndex, int numHeadFields, boolean[] dynamicIndices,
+        List<DecodedArg> fields) {
+        return headIndex >= numHeadFields
+            || dynamicIndices[headIndex]
+            || !(fields.get(headIndex) instanceof DecodedArg.Leaf);
+    }
+
+    private static int endOfStaticLeafRun(int runStart, int numHeadFields, boolean[] dynamicIndices,
+        List<DecodedArg> fields) {
+        var headIndex = runStart;
+        while (headIndex < numHeadFields && headIndex < fields.size()
+            && !dynamicIndices[headIndex]
+            && fields.get(headIndex) instanceof DecodedArg.Leaf) {
+            headIndex++;
+        }
+        return headIndex;
+    }
+
+    private static DecodedArg tryMergeStaticHeadRun(DecodeContext ctx, byte[] body, int runStart, int runEnd) {
+        var runLen = runEnd - runStart;
+        if (runLen < 2) {
+            return null;
+        }
+        var span = AbiCodec.slice(body, runStart * 32, runLen * 32);
+        var merged = decodeTupleElementBody(ctx, span);
+        if (merged instanceof DecodedArg.Tuple t && t.fields().size() >= 2 && t.fields().size() < runLen) {
+            return merged;
+        }
+        return null;
+    }
+
+    private static void copyHeadFieldRange(List<DecodedArg> fields, List<DecodedArg> out, int runStart,
+        int runEnd) {
+        for (var i = runStart; i < runEnd; i++) {
+            out.add(fields.get(i));
+        }
+    }
+
+    /**
+     * Re-decodes head words at dynamic offset indices that were mis-parsed as static leaves.
+     */
+    static List<DecodedArg> refineMisclassifiedDynamicHeadFields(DecodeContext ctx, byte[] body,
+        int headSize, List<DecodedArg> fields, List<int[]> dynSlots) {
+        if (dynSlots.isEmpty() || fields.isEmpty()) {
+            return fields;
+        }
+        var out = new ArrayList<>(fields);
+        for (var slot : dynSlots) {
+            applyDynamicHeadRefinement(ctx, body, headSize, dynSlots, out, slot[0]);
+        }
+        return out;
+    }
+
+    private static void applyDynamicHeadRefinement(DecodeContext ctx, byte[] body, int headSize,
+        List<int[]> dynSlots, List<DecodedArg> out, int idx) {
+        if (idx < 0 || idx >= out.size() || !(out.get(idx) instanceof DecodedArg.Leaf)) {
+            return;
+        }
+        var word = AbiCodec.slice(body, idx * 32, 32);
+        var value = AbiCodec.uintOf(word);
+        if (!AbiCodec.isPlausibleOffset(value, body.length, headSize)) {
+            return;
+        }
+        var refined = decodeOneHeadField(ctx, body, idx, word, headSize, dynSlots);
+        if (!(refined instanceof DecodedArg.Leaf)) {
+            out.set(idx, refined);
+        }
+    }
+
+    /**
+     * Head/tail candidate score; {@code opaqueScoring} favors tuples and arrays over per-slot
+     * leaves when choosing among head sizes (skeleton-only tuple bodies).
+     */
+    static int scoreHeadTailParse(byte[] body, int headSize, List<DecodedArg> fields,
+        List<int[]> dynSlots, boolean opaqueScoring) {
+        var score = baseHeadTailScore(body, headSize, dynSlots) + sumFieldScoreContributions(fields, opaqueScoring);
+        if (opaqueScoring) {
+            score += opaqueHeadTailAdjustments(fields, dynSlots);
+        }
+        return score;
+    }
+
+    private static int baseHeadTailScore(byte[] body, int headSize, List<int[]> dynSlots) {
+        return 500 + dynSlots.size() * 20 - (body.length / 32 - headSize / 32);
+    }
+
+    private static int sumFieldScoreContributions(List<DecodedArg> fields, boolean opaqueScoring) {
+        var score = 0;
+        for (var field : fields) {
+            score += scoreFieldContribution(field, opaqueScoring);
+        }
+        return score;
+    }
+
+    private static int scoreFieldContribution(DecodedArg field, boolean opaqueScoring) {
+        if (field instanceof DecodedArg.Leaf) {
+            return opaqueScoring ? -60 : -50;
+        }
+        if (!opaqueScoring) {
+            return 0;
+        }
+        if (field instanceof DecodedArg.PrimArray pa && !pa.arraySuffix().isEmpty()) {
+            return 40 + pa.arraySuffix().length() * 5;
+        }
+        if (field instanceof DecodedArg.Tuple t && !t.arraySuffix().isEmpty()) {
+            return 40;
+        }
+        if (field instanceof DecodedArg.Tuple t) {
+            return 15 + t.fields().size() * 8;
+        }
+        return 0;
+    }
+
+    private static int opaqueHeadTailAdjustments(List<DecodedArg> fields, List<int[]> dynSlots) {
+        var adjustment = 0;
+        if (!dynSlots.isEmpty() && fields.size() > dynSlots.size() + 2) {
+            adjustment -= 80;
+        }
+        adjustment -= leafAtDynamicSlotPenalty(fields, dynSlots);
+        return adjustment;
+    }
+
+    private static int leafAtDynamicSlotPenalty(List<DecodedArg> fields, List<int[]> dynSlots) {
+        var penalty = 0;
+        for (var slot : dynSlots) {
+            var idx = slot[0];
+            if (idx >= 0 && idx < fields.size() && fields.get(idx) instanceof DecodedArg.Leaf) {
+                penalty += 120;
+            }
+        }
+        return penalty;
+    }
+
+    static int scoreHeadTailParse(byte[] body, int headSize, List<DecodedArg> fields,
+        List<int[]> dynSlots) {
+        return scoreHeadTailParse(body, headSize, fields, dynSlots, false);
     }
 
     public static List<DecodedArg> decodeFlatStaticWords(DecodeContext ctx, byte[] body, int numWords) {
@@ -214,6 +414,32 @@ public final class GreedyBodyDecoder {
         }
         if (shape == null) {
             return null;
+        }
+        return promoteNestedMatrixSuffix(ctx, shape, body, count, elemOffsets);
+    }
+
+    /**
+     * When offset-indexed elements are length-prefixed nested dynamic arrays, promote outer
+     * {@code []} to {@code [][]}.
+     */
+    static DecodedArg promoteNestedMatrixSuffix(DecodeContext ctx, DecodedArg shape, byte[] body,
+        int count, int[] elemOffsets) {
+        if (!(shape instanceof DecodedArg.PrimArray pa) || !"[]".equals(pa.arraySuffix())) {
+            return ArraySuffixComposer.attach(shape, "[]");
+        }
+        var nestedRows = 0;
+        for (var i = 0; i < count; i++) {
+            var from = 32 + elemOffsets[i];
+            var to = (i + 1 < count) ? 32 + elemOffsets[i + 1] : body.length;
+            var elem = AbiCodec.slice(body, from, to - from);
+            if (tryDecodeOffsetPrefixedRowArray(ctx, elem) instanceof DecodedArg.PrimArray row
+                && row.arraySuffix().contains("[]")) {
+                nestedRows++;
+            }
+        }
+        if (nestedRows > 0 && nestedRows >= (count + 1) / 2) {
+            return new DecodedArg.PrimArray("[][]", pa.baseCandidates(),
+                count + " element(s), nested offset-indexed matrix rows");
         }
         return ArraySuffixComposer.attach(shape, "[]");
     }

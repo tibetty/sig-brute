@@ -125,6 +125,27 @@ class ConfigEmitterTest {
     }
 
     @Test
+    void emitShallowOpaqueTuple_keepsSkeletonBytes32InSearchCandidates() {
+        var args = List.<DecodedArg>of(
+            new DecodedArg.Tuple("",
+                List.of(
+                    new DecodedArg.Leaf(List.of("bytes32"),
+                        "small uint 0x0000000000000000000000000000000000000000000000000000000000000001"),
+                    new DecodedArg.Leaf(List.of("uint256"),
+                        "small uint 0x00000000000000000000000000000000000000000000000000000000aeecd629")),
+                "static opaque tuple, 2 field(s) from inline hints"),
+            new DecodedArg.Leaf(List.of("bytes32"),
+                "small uint 0x0000000000000000000000000000000000000000000000000000000000000001"),
+            new DecodedArg.Leaf(List.of("bytes32"),
+                "small uint 0x0000000000000000000000000000000000000000000000000000000000000001"));
+        var yaml = ConfigEmitter.emit(new byte[]{0x1f, 0x6d, 0x51, 0x0b}, "sendL2Message", args,
+            List.of("tuple", "bytes32", "bytes32"));
+        assertTrue(yaml.contains("- [bytes32, uint*, int*"),
+            "field 0 must keep bytes32 from skeleton for search");
+        assertTrue(yaml.contains("uint32+"), "field 1 still widens uint256 to heuristics");
+    }
+
+    @Test
     void emitShallowTopLevel_keepsHeuristicAmbiguityInTupleFields() {
         var args = List.<DecodedArg>of(
             new DecodedArg.Tuple("",

@@ -8,7 +8,9 @@ public enum SkeletonTypeKind {
     DYNAMIC_PRIM_ARRAY,
     /** {@code (T,...)[…]} with dynamic {@code []} — tail decoded on the dynamic path. */
     INLINE_TUPLE_ARRAY,
-    /** Opaque {@code tuple} from ABI metadata. */
+    /** Skeleton-only opaque {@code tuple[]}, {@code tuple[][]}, … (no inline field types). */
+    OPAQUE_TUPLE_ARRAY,
+    /** Skeleton-only opaque {@code tuple} (static or dynamic head). */
     OPAQUE_TUPLE,
     /** Static head slots (primitives, fixed arrays, static inline tuples). */
     STATIC

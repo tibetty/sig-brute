@@ -4,9 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-05-28
+
+### Added
+
+- Skeleton-only decode: `ShallowSkeletonHints.isSkeletonOnlyLayout`, `SkeletonTypeKind.OPAQUE_TUPLE_ARRAY`, `SkeletonOnlyStaticTuplePartitioner` (static opaque `tuple` heads), `SkeletonArrayDecoder.decodeOpaqueTupleArray`, greedy opaque head/tail scoring and merge refinements
+- Optional corpus tests: `SkeletonOnlyImprovementRegressionTest`, `SkeletonOnlyFailureAnalysisTest` (diagnostic), `SkeletonOnlyHeadroomTest` (disabled aspirational fixtures), `TupleCorpusTestSupport`, `SkeletonOnlyStaticTuplePartitionerTest`
+
 ### Changed
 
-- Local tuple corpus evaluation expanded to **300** fixtures; shallow skeleton structural match remains **100%** on both `greedy` and `heuristic_search` (see `TupleCorpusShallowSkeletonEvaluationTest`)
+- Local tuple corpus evaluation expanded to **300** fixtures; shallow report adds **`skeleton_only`** mode alongside `with_function_inline` and `opaque_only` (see `TupleCorpusShallowSkeletonEvaluationTest`)
+- Shallow emit: preserve skeleton-pinned concrete types (e.g. `bytes32`) when calldata heuristics would drop them
+- `decode/ARCHITECTURE.md` and README: honest decoder strengths/weaknesses and skeleton-only benchmark expectations
 
 ## [1.3.1] — 2026-05-28
 

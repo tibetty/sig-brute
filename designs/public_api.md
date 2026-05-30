@@ -233,7 +233,7 @@ var cs = CartesianStream.shard(dims, shardIndex, totalShards);
 **Dependency scope for consumers:**
 
 ```gradle
-implementation 'me.tibetty:sig-brute:1.3.1'
+implementation 'me.tibetty:sig-brute:1.3.2'
 ```
 
 SnakeYAML is pulled transitively when using `YamlConfigParser`.
@@ -248,7 +248,7 @@ SnakeYAML is pulled transitively when using `YamlConfigParser`.
    - `MAVEN_CENTRAL_USERNAME` / `MAVEN_CENTRAL_PASSWORD` — Portal user token
    - `SIGNING_KEY` — armored GPG private key
    - `SIGNING_PASSWORD` — key passphrase
-4. Tag and push: `git tag v1.3.1 && git push origin v1.3.1` — triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml) (upload to OSSRH Staging API, then promote to namespace `me.tibetty` with automatic release).
+4. Tag and push: `git tag v1.3.2 && git push origin v1.3.2` — triggers [`.github/workflows/release.yml`](../.github/workflows/release.yml) (upload to OSSRH Staging API, then promote to namespace `me.tibetty` with automatic release).
 5. **Publish the matching GPG public key to a keyserver** (must match the private key in `SIGNING_KEY`):
    ```bash
    gpg --keyserver keys.openpgp.org --send-keys YOUR_KEY_ID

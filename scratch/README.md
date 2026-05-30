@@ -16,6 +16,13 @@ evaluation tests locally:
 ```bash
 python3 scratch/fetch_tuple_calldata_corpus.py --target 300
 ./gradlew test --tests 'me.tibetty.sigbrute.decode.strategy.TupleCorpusShallowSkeletonEvaluationTest'
+./gradlew test --tests 'me.tibetty.sigbrute.decode.strategy.SkeletonOnlyImprovementRegressionTest'
 python3 scratch/check_decode_structure.py --mode shallow
-# Reports greedy / heuristic_search structural match counts (300 fixtures when corpus is complete)
+# Reports greedy / heuristic_search for with_function_inline, opaque_only, and skeleton_only
+```
+
+Optional maintainer diagnostic (prints failure categories; does not fail CI):
+
+```bash
+./gradlew test --tests 'me.tibetty.sigbrute.decode.strategy.SkeletonOnlyFailureAnalysisTest'
 ```

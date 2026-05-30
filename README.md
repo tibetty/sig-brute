@@ -119,19 +119,19 @@ flowchart TD
 ./gradlew shadowJar
 ```
 
-The fat JAR is produced at `build/libs/sig-brute-1.3.1-all.jar` (thin library JAR:
+The fat JAR is produced at `build/libs/sig-brute-1.3.2-all.jar` (thin library JAR:
 `sig-brute-1.2.0.jar` for Maven dependents — see [designs/public_api.md](designs/public_api.md)).
 
 ## Usage
 
 ```bash
-java -jar build/libs/sig-brute-1.3.1-all.jar <config.yaml>                    # brute-force search
-java -jar build/libs/sig-brute-1.3.1-all.jar -                                # search, stdin config
-java -jar build/libs/sig-brute-1.3.1-all.jar --find-first <config.yaml>       # stop at first match
-java -jar build/libs/sig-brute-1.3.1-all.jar --skip-lookup <config.yaml>      # search without API
-java -jar build/libs/sig-brute-1.3.1-all.jar decode <calldata.txt>            # draft YAML
-java -jar build/libs/sig-brute-1.3.1-all.jar decode --validate <calldata.txt> # decode + YAML check
-java -jar build/libs/sig-brute-1.3.1-all.jar decode --strategy heuristic_search <calldata.txt>
+java -jar build/libs/sig-brute-1.3.2-all.jar <config.yaml>                    # brute-force search
+java -jar build/libs/sig-brute-1.3.2-all.jar -                                # search, stdin config
+java -jar build/libs/sig-brute-1.3.2-all.jar --find-first <config.yaml>       # stop at first match
+java -jar build/libs/sig-brute-1.3.2-all.jar --skip-lookup <config.yaml>      # search without API
+java -jar build/libs/sig-brute-1.3.2-all.jar decode <calldata.txt>            # draft YAML
+java -jar build/libs/sig-brute-1.3.2-all.jar decode --validate <calldata.txt> # decode + YAML check
+java -jar build/libs/sig-brute-1.3.2-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
 | Flag                                  | Subcommand | Effect                                                                                               |
@@ -141,7 +141,7 @@ java -jar build/libs/sig-brute-1.3.1-all.jar decode --strategy heuristic_search 
 | `--strategy greedy\|heuristic_search` | decode     | Body decode policy (default: `greedy`)                                                               |
 | `--validate`                          | decode     | Re-parse emitted YAML and verify selector before stdout                                              |
 | `--ignore-skeleton`                   | decode     | Ignore `Function:` header; decode calldata bytes only (corpus / stress runs)                         |
-| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level in YAML; inline `Function:` types used for layout and tuple/array structure only; leaf candidates still from calldata heuristics (`[bytes, string]`, `[]`, `uint*`, …) |
+| `--shallow-skeleton`                  | decode     | Opaque `tuple` / `tuple[]` top-level in YAML; `Function:` types used for **head layout only** (slot counts); tuple interiors and leaf candidates from calldata heuristics (`[bytes, string]`, `[]`, `uint*`, …) |
 | `--wide`                              | decode     | With `heuristic_search`: union greedy + compact type candidates per slot (larger YAML)               |
 
 In find-first mode the search runs sequentially in type-frequency order so the most
@@ -150,8 +150,8 @@ likely signatures are tried first.
 Chain them to go from calldata to a match in one shot:
 
 ```bash
-java -jar build/libs/sig-brute-1.3.1-all.jar decode calldata.txt \
-  | java -jar build/libs/sig-brute-1.3.1-all.jar -
+java -jar build/libs/sig-brute-1.3.2-all.jar decode calldata.txt \
+  | java -jar build/libs/sig-brute-1.3.2-all.jar -
 ```
 
 Example output:
@@ -178,9 +178,9 @@ from value shapes. The `decode` subcommand does all of that mechanically and
 emits a sig-brute YAML you only need to refine.
 
 ```bash
-java -jar build/libs/sig-brute-1.3.1-all.jar decode <calldata.txt>
-java -jar build/libs/sig-brute-1.3.1-all.jar decode < calldata.txt   # or stdin
-java -jar build/libs/sig-brute-1.3.1-all.jar decode --strategy heuristic_search <calldata.txt>
+java -jar build/libs/sig-brute-1.3.2-all.jar decode <calldata.txt>
+java -jar build/libs/sig-brute-1.3.2-all.jar decode < calldata.txt   # or stdin
+java -jar build/libs/sig-brute-1.3.2-all.jar decode --strategy heuristic_search <calldata.txt>
 ```
 
 Non-fatal decode warnings are printed to **stderr**; the YAML header lists them as
@@ -214,15 +214,17 @@ Per-arg type candidates derived from value shape:
 | `firstNZ` ≥ 13, value ≥ 2                      | `uintN+` (N = (32−firstNZ)×8)         | Minimum-bit-width floor; e.g. 28 leading zeros → `uint32+`          |
 | `firstNZ` in 1–11 (large value)                | `uintN+`, `bytes32`                   | Large uint or raw 32-byte value                                     |
 
-Tuple/array structure (number of fields, array element count, inline-static vs
-dynamic encoding) is recovered exactly from offset arithmetic. Per-leaf type
-choice is a guess — for tuple-array elements with mixed inner shapes the
-decoder uses element[0] and flags the assumption in a comment.
+Tuple/array **structure** (field count, nesting, array suffixes, inline-static vs
+dynamic encoding) is reliable when skeleton hints are strong; see
+[`decode/ARCHITECTURE.md` § Strengths and weaknesses](src/main/java/me/tibetty/sigbrute/decode/ARCHITECTURE.md#strengths-and-weaknesses-honest-assessment)
+for measured limits on the optional 300-fixture tuple corpus. Per-leaf **types**
+are always heuristic guesses — for `tuple[]` with mixed inner shapes the decoder
+uses element[0] and flags the assumption in a comment.
 
 ### Example
 
 ```bash
-java -jar build/libs/sig-brute-1.3.1-all.jar decode \
+java -jar build/libs/sig-brute-1.3.2-all.jar decode \
   src/main/resources/examples/calldata/dag_swap_by_order_id.calldata
 ```
 
@@ -269,21 +271,37 @@ candidates based on what you know; everything else is ready to run.
 
 ### Limitations
 
-- Per-slot type inference is a heuristic; `uint256` vs `bytes32`, `address` vs
-  `uint160`, and `bytes` vs `string` are indistinguishable from the bytes alone.
-- **`greedy`** (default) emits full per-slot candidate lists. **`heuristic_search`** collapses
-  uint/int/bytes/fixed runs to floor patterns (`uintN+`, `int*`, …) suitable for YAML.
-- The decoder infers `bool` only for zero-valued and value-1 slots. `int*` / `fixed*` are
-  only collapsed under `heuristic_search`; add them by hand under `greedy` if needed.
-- For `tuple[]` whose elements have different internal shapes (rare in
-  practice), only element[0]'s shape is emitted. Review the calldata and
-  broaden the YAML if needed.
-- Without a `Function:` skeleton the decoder cannot tell an inline-static
-  tuple's fields apart from sibling args; it emits each head slot as a
-  top-level arg. Pass the Etherscan function line to get the right grouping.
-- `# Alternate structures` lines (heuristic search) are **comments only** — the
-  search schema accepts one `args` tree per file. Use separate configs for each
-  layout you want to brute-force.
+Full assessment (strengths, corpus benchmarks, skeleton-only vs shallow): [`decode/ARCHITECTURE.md` § Strengths and weaknesses](src/main/java/me/tibetty/sigbrute/decode/ARCHITECTURE.md#strengths-and-weaknesses-honest-assessment).
+
+**Structure vs types**
+
+- **Strong** when Etherscan’s `Function:` line includes inline tuple types: nested layout match
+  is **100%** on the optional local tuple corpus (300 fixtures).
+- **Weaker** with `--shallow-skeleton` (layout from `Function:`, heuristic interiors): **~85%**
+  nested structure on that corpus; top-level shape still **100%**.
+- **Weaker still** with skeleton-only hints (`tuple`, `tuple[]`, no inline field types): **~80%**
+  nested structure; static `tuple` head partitioning and opaque `tuple[]` decode help, but
+  **~20%** of fixtures still miss nesting (especially `[]` inside tuple bodies, head layout
+  without `Function:`, and multi-dim arrays).
+
+**Leaf inference (all modes)**
+
+- Per-slot types are guesses; `uint256` vs `bytes32`, `address` vs `uint160`, and `bytes` vs
+  `string` are often indistinguishable from bytes alone.
+- **`greedy`** emits full candidate lists; **`heuristic_search`** collapses to floors/wildcards
+  (`uintN+`, `int*`, …). On the tuple corpus, strategy does not change structural match rates
+  for shallow/skeleton modes — only YAML shape and warnings.
+- `bool` is inferred only for zero and value-1 words; `int*` / `fixed*` need `heuristic_search`
+  or manual YAML under `greedy`.
+- Heterogeneous `tuple[]`: element[0] shape is assumed unless you edit the config.
+
+**Operational**
+
+- Without a `Function:` skeleton, inline-static tuples may appear as separate head args until
+  you add hints or fix YAML manually.
+- Decode does not replace lookup or search: skeleton-only output is a draft, not a verified
+  signature.
+- `# Alternate structures` (heuristic search) are **comments only** — one `args` tree per file.
 
 ### Choosing decode and search settings
 
@@ -296,6 +314,7 @@ is in [`designs/public_api.md`](designs/public_api.md).
 | --------- | ------ | --- |
 | Etherscan dump with a trusted `Function:` line | `greedy` (default) | Uses skeleton hints; fast draft YAML |
 | 4byte full sig in `Function:` but RE-friendly top-level names | `heuristic_search` + `--shallow-skeleton` | Opaque top-level YAML; inline types guide layout and nesting; leaf types from heuristics |
+| Explorer shows only `tuple` / `tuple[]` (no inner field types) | `heuristic_search` on calldata **without** `Function:` (skeleton-only API) | ~80% nested structure on tuple corpus; expect manual fixes; see [ARCHITECTURE § Strengths and weaknesses](src/main/java/me/tibetty/sigbrute/decode/ARCHITECTURE.md#strengths-and-weaknesses-honest-assessment) |
 | Raw hex or no reliable `Function:` line | `heuristic_search` + `--ignore-skeleton` | Explores head/tail and dynamic tails on bytes only |
 | Complex tuples, layout ambiguous | `heuristic_search` | Scores branches; warnings and `# Alternate structures` on near-ties |
 | Compact YAML for search (`uint160+`, `int*`) | `heuristic_search` | Collapses types to wildcards/floors |
@@ -451,7 +470,7 @@ find_first: false
 ```
 
 ```bash
-java -jar build/libs/sig-brute-1.3.1-all.jar src/main/resources/examples/config/erc20_transfer.yaml
+java -jar build/libs/sig-brute-1.3.2-all.jar src/main/resources/examples/config/erc20_transfer.yaml
 ```
 
 Expected match: `transfer(address,uint256)`
@@ -474,7 +493,7 @@ find_first: true
 ```
 
 ```bash
-java -jar build/libs/sig-brute-1.3.1-all.jar src/main/resources/examples/config/fill_orders.yaml
+java -jar build/libs/sig-brute-1.3.2-all.jar src/main/resources/examples/config/fill_orders.yaml
 ```
 
 Expected match: `fillOrders((address,uint256)[],bytes32)`

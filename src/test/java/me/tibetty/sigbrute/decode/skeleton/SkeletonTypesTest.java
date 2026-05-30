@@ -25,6 +25,12 @@ class SkeletonTypesTest {
     }
 
     @Test
+    void kind_opaqueTupleArray_isOpaqueTupleArrayKind() {
+        assertEquals(SkeletonTypeKind.OPAQUE_TUPLE_ARRAY, SkeletonTypes.kind("tuple[]"));
+        assertEquals(SkeletonTypeKind.OPAQUE_TUPLE_ARRAY, SkeletonTypes.kind("tuple[][]"));
+    }
+
+    @Test
     void inlineTupleBase_stripsArraySuffixes() {
         assertEquals("(uint8,address)", SkeletonTypes.inlineTupleBase("(uint8,address)[][]"));
         assertNull(SkeletonTypes.inlineTupleBase("address[]"));

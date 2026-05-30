@@ -36,12 +36,24 @@ public final class AbiDecoder {
 
     public static DecodeResult decodeResult(byte[] body, List<String> topLevelHint,
         DecodeStrategy strategy, boolean wideCandidates, List<String> inlineTopLevelHint) {
+        return decodeResult(body, topLevelHint, strategy, wideCandidates, inlineTopLevelHint,
+            inlineTopLevelHint);
+    }
+
+    /**
+     * @param layoutInlineHint original {@code Function:} types for head-slot layout only
+     * @param interiorInlineHint inline tuple field types for inner decode; empty under
+     *        {@code --shallow-skeleton} (interiors decoded from calldata heuristics only)
+     */
+    public static DecodeResult decodeResult(byte[] body, List<String> topLevelHint,
+        DecodeStrategy strategy, boolean wideCandidates, List<String> layoutInlineHint,
+        List<String> interiorInlineHint) {
         if ((body.length & 31) != 0) {
             throw new IllegalArgumentException("body length not a multiple of 32: " + body.length);
         }
 
         return DecodeStrategy.decode(body, hintOrEmpty(topLevelHint), strategy, wideCandidates,
-            hintOrEmpty(inlineTopLevelHint));
+            hintOrEmpty(layoutInlineHint), hintOrEmpty(interiorInlineHint));
     }
 
     private static List<String> hintOrEmpty(List<String> hint) {
